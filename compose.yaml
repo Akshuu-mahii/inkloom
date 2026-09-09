@@ -1,0 +1,59 @@
+# Local development dependencies for Inkloom.
+#
+# Production uses Neon PostgreSQL and Resend; nothing here is deployed.
+# NEVER put production secrets in this file — these credentials are
+# intentionally weak, local-only, and bound to 127.0.0.1.
+
+name: inkloom
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: inkloom-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: inkloom
+      POSTGRES_PASSWORD: inkloom_local_dev
+      POSTGRES_DB: inkloom
+      # Deterministic collation so ordering matches Neon.
+      POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=en-US --encoding=UTF8"
+    ports:
+      # Bound to loopback only — never exposed on the LAN.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - inkloom_pgdata:/var/lib/postgresql/data
+      - ./scripts/sql/00-init-test-db.sql:/docker-entrypoint-initdb.d/00-init-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inkloom -d inkloom"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "log_statement=none"
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: inkloom-mailpit
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025" # SMTP
+      - "127.0.0.1:8025:8025" # Web UI  -> http://localhost:8025
+    environment:
+      MP_MAX_MESSAGES: 5000
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+volumes:
+  inkloom_pgdata:
+    name: inkloom_pgdata

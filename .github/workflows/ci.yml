@@ -1,0 +1,306 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Deliberately weak, local-only, and never used outside this ephemeral job.
+  # The production values live in Cloudflare Secrets and are never in CI.
+  DATABASE_URL: postgresql://inkloom:inkloom_ci@127.0.0.1:5432/inkloom
+  TEST_DATABASE_URL: postgresql://inkloom:inkloom_ci@127.0.0.1:5432/inkloom_test
+  INKLOOM_ENV: test
+  APP_URL: http://localhost:5173
+  BETTER_AUTH_SECRET: ci-only-secret-not-used-anywhere-else-000000
+  ACCESS_CODE_PEPPER: ci-only-access-code-pepper-32-chars-x
+  IP_HASH_PEPPER: ci-only-ip-hash-pepper-32-characters
+  EMAIL_TRANSPORT: mailpit
+  MAILPIT_HOST: 127.0.0.1
+  TURNSTILE_ENABLED: "false"
+  RATE_LIMIT_ENABLED: "true"
+  LOG_LEVEL: error
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Fast feedback: anything that needs no database runs first and in parallel,
+  # so a formatting mistake fails in under a minute rather than after the whole
+  # integration suite.
+  # ---------------------------------------------------------------------------
+  static:
+    name: Format, lint, types
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Generate route types
+        run: pnpm --filter @inkloom/web exec react-router typegen
+
+      - name: Type check
+        run: pnpm -r exec tsc --noEmit
+
+  # ---------------------------------------------------------------------------
+  # Secret scanning. Separate job so it reports independently and is impossible
+  # to overlook inside a longer log.
+  # ---------------------------------------------------------------------------
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history, so a secret committed earlier and later removed is
+          # still found.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Scan source
+        run: pnpm secrets:check
+
+      - name: Scan git history
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Unit tests: pure functions, no database. Fast enough to run everywhere.
+  # ---------------------------------------------------------------------------
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:unit
+
+  # ---------------------------------------------------------------------------
+  # Integration, concurrency and security tests against a REAL Postgres.
+  #
+  # A container rather than a mock, because the guarantees under test are
+  # database guarantees: unique constraints, row locks, append-only triggers.
+  # A mocked database cannot demonstrate that two racing transactions produce
+  # exactly one redemption, which is the single most important assertion here.
+  # ---------------------------------------------------------------------------
+  database:
+    name: Integration, concurrency and security tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: inkloom
+          POSTGRES_PASSWORD: inkloom_ci
+          POSTGRES_DB: inkloom
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U inkloom"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      - name: Create the isolated test database
+        run: |
+          PGPASSWORD=inkloom_ci psql -h 127.0.0.1 -U inkloom -d inkloom \
+            -c "CREATE DATABASE inkloom_test OWNER inkloom;"
+
+      - name: Apply migrations
+        run: pnpm db:migrate
+
+      # Proves the migrations are complete: if the schema and the migrations
+      # have diverged, drizzle-kit finds a pending change and this fails.
+      - name: Migration validation
+        run: |
+          pnpm db:check
+          pnpm --filter @inkloom/db exec drizzle-kit generate --name=ci_drift_check
+          if git diff --name-only --exit-code packages/db/migrations; then
+            echo "Schema and migrations agree."
+          else
+            echo "::error::The Drizzle schema has changes with no migration. Run 'pnpm db:generate' and commit the result."
+            git diff packages/db/migrations
+            exit 1
+          fi
+
+      - name: Integration and concurrency tests
+        run: pnpm test:integration
+
+      - name: Security tests
+        run: pnpm test:security
+
+      - name: Reconciliation must report no drift
+        run: pnpm credits:reconcile
+
+  # ---------------------------------------------------------------------------
+  # Production build, plus a scan of the ACTUAL client bundle for server secrets.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: OpenAPI is in step with the schemas
+        run: |
+          pnpm openapi:emit
+          if ! git diff --exit-code openapi.json; then
+            echo "::error::openapi.json is stale. Run 'pnpm openapi:emit' and commit it."
+            exit 1
+          fi
+
+      # The check that matters most: a secret can be perfectly safe in a server
+      # file and catastrophic if a bundler inlines it into the browser bundle.
+      - name: No server secrets in the client bundle
+        run: pnpm secrets:check
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: apps/web/build
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # End-to-end: a real browser against a real Worker, database and mail server.
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: End-to-end tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [static]
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: inkloom
+          POSTGRES_PASSWORD: inkloom_ci
+          POSTGRES_DB: inkloom
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U inkloom"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      mailpit:
+        image: axllent/mailpit:latest
+        ports: ["1025:1025", "8025:8025"]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      - name: Prepare the database
+        run: |
+          pnpm db:migrate
+          pnpm db:seed
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        run: pnpm test:e2e --project=chromium
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Dependency vulnerabilities. Advisory-only on a PR so a fresh advisory in a
+  # transitive dependency does not block an unrelated fix, but it is always
+  # visible and always reported.
+  # ---------------------------------------------------------------------------
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      - name: Audit
+        run: pnpm audit --audit-level=high
+
+  # ---------------------------------------------------------------------------
+  # A single gate for branch protection to require.
+  # ---------------------------------------------------------------------------
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    needs: [static, secrets, unit, database, build, e2e]
+    if: always()
+    steps:
+      - name: Verify every required job succeeded
+        run: |
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
+            echo "::error::One or more required jobs failed."
+            exit 1
+          fi
+          echo "All required jobs passed."

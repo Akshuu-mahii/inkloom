@@ -1,0 +1,107 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "inkloom",
+  "main": "./workers/app.ts",
+  "compatibility_date": "2026-09-01",
+  // `nodejs_compat` is what lets the `pg` driver run in workerd, so the same
+  // database code path serves local development, tests and production.
+  "compatibility_flags": ["nodejs_compat"],
+
+  "assets": {
+    "directory": "./build/client",
+    // The Worker runs first and forwards everything it does not serve as a
+    // static file, so /api/* and SSR both reach the handler.
+    "run_worker_first": ["/api/*"],
+    "not_found_handling": "none",
+  },
+
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+
+  // Hyperdrive pools Postgres connections at Cloudflare's edge.
+  //
+  // It is used in EVERY environment, not just production, for one specific
+  // reason: a Worker isolate cannot safely reuse a raw socket across request
+  // contexts, so a cached `pg` pool eventually serves a dead connection and
+  // queries start timing out. Hyperdrive owns the pooling, so the Worker gets a
+  // usable connection every time.
+  //
+  // Locally, `localConnectionString` points Wrangler straight at the Docker
+  // Postgres, so dev and production run the identical code path. The staging
+  // and production entries below carry real Hyperdrive ids pointing at separate
+  // Neon branches.
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "inkloom-local-dev",
+      "localConnectionString": "postgresql://inkloom:inkloom_local_dev@127.0.0.1:5433/inkloom",
+    },
+  ],
+
+  // ---------------------------------------------------------------------
+  // NON-SECRET values only.
+  //
+  // Every secret is set with `wrangler secret put NAME --env <env>` and lives
+  // in Cloudflare Secrets, never in this file:
+  //   BETTER_AUTH_SECRET, ACCESS_CODE_PEPPER, IP_HASH_PEPPER,
+  //   RESEND_API_KEY, TURNSTILE_SECRET_KEY, GOOGLE_CLIENT_SECRET
+  // The Hyperdrive binding carries the database credentials, so DATABASE_URL
+  // is not set here either.
+  // ---------------------------------------------------------------------
+  "vars": {
+    "INKLOOM_ENV": "development",
+    "APP_URL": "http://localhost:5173",
+    "EMAIL_TRANSPORT": "mailpit",
+    "MAILPIT_HOST": "127.0.0.1",
+    "EMAIL_FROM": "Inkloom <no-reply@mail.inkloom.com>",
+    "EMAIL_REPLY_TO": "support@inkloom.com",
+    "SUPPORT_EMAIL": "support@inkloom.com",
+    "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
+    "TURNSTILE_ENABLED": "true",
+    "RATE_LIMIT_ENABLED": "true",
+    "ANALYTICS_ENABLED": "true",
+    "LOG_LEVEL": "debug",
+    "INKLOOM_RELEASE": "dev",
+  },
+
+  "env": {
+    "staging": {
+      "name": "inkloom-staging",
+      "vars": {
+        "INKLOOM_ENV": "staging",
+        "APP_URL": "https://staging.inkloom.com",
+        "EMAIL_TRANSPORT": "resend",
+        "EMAIL_FROM": "Inkloom (staging) <no-reply@mail-staging.inkloom.com>",
+        "EMAIL_REPLY_TO": "support@inkloom.com",
+        "SUPPORT_EMAIL": "support@inkloom.com",
+        "TURNSTILE_ENABLED": "true",
+        "RATE_LIMIT_ENABLED": "true",
+        "ANALYTICS_ENABLED": "true",
+        "LOG_LEVEL": "info",
+        "SENTRY_ENVIRONMENT": "staging",
+      },
+      // A SEPARATE Neon branch from production. Sharing one would put real
+      // user data in a test environment.
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "REPLACE_WITH_STAGING_HYPERDRIVE_ID" }],
+      "routes": [{ "pattern": "staging.inkloom.com", "custom_domain": true }],
+    },
+
+    "production": {
+      "name": "inkloom-production",
+      "vars": {
+        "INKLOOM_ENV": "production",
+        "APP_URL": "https://inkloom.com",
+        "EMAIL_TRANSPORT": "resend",
+        "EMAIL_FROM": "Inkloom <no-reply@mail.inkloom.com>",
+        "EMAIL_REPLY_TO": "support@inkloom.com",
+        "SUPPORT_EMAIL": "support@inkloom.com",
+        "TURNSTILE_ENABLED": "true",
+        "RATE_LIMIT_ENABLED": "true",
+        "ANALYTICS_ENABLED": "true",
+        "LOG_LEVEL": "info",
+        "SENTRY_ENVIRONMENT": "production",
+      },
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "REPLACE_WITH_PRODUCTION_HYPERDRIVE_ID" }],
+      "routes": [{ "pattern": "inkloom.com", "custom_domain": true }],
+    },
+  },
+}

@@ -1,0 +1,63 @@
+import { defineConfig, devices } from "@playwright/test";
+import { config } from "dotenv";
+
+config({ path: ".env", quiet: true });
+
+const PORT = Number(process.env.E2E_PORT ?? 5173);
+const BASE_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
+
+/**
+ * End-to-end tests.
+ *
+ * These drive a REAL browser against a REAL Worker and a REAL database. Nothing
+ * is stubbed: signup genuinely writes a user, the verification email genuinely
+ * arrives in Mailpit and is genuinely read back, and redemption genuinely moves
+ * the credit ledger.
+ *
+ * The tests reuse an already-running dev server when one is present, so an
+ * author can keep `pnpm dev` open; CI starts its own.
+ */
+export default defineConfig({
+  testDir: "./e2e",
+  // Raises rate limits through the product's own override setting so the suite
+  // does not spend its run being throttled by the limiter it shares with prod.
+  globalSetup: "./e2e/global-setup.ts",
+  fullyParallel: false,
+  forbidOnly: Boolean(process.env.CI),
+  retries: process.env.CI ? 1 : 0,
+  // Serial: the suite creates and mutates shared rows (feature flags, campaigns)
+  // and parallel workers would race each other rather than the code under test.
+  workers: 1,
+  reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : [["list"]],
+  timeout: 60_000,
+  expect: { timeout: 10_000 },
+
+  use: {
+    baseURL: BASE_URL,
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    video: "retain-on-failure",
+    // Every action waits for the element to be actionable; hydration is handled
+    // explicitly by the `settled()` helper in e2e/support.ts.
+    actionTimeout: 15_000,
+  },
+
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    {
+      name: "mobile",
+      use: { ...devices["Pixel 7"] },
+      // Mobile only runs the journeys where layout genuinely differs.
+      testMatch: /(mobile|accessibility)\.spec\.ts/,
+    },
+  ],
+
+  webServer: {
+    command: "pnpm --filter @inkloom/web dev",
+    url: `${BASE_URL}/api/health`,
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+    stdout: "pipe",
+    stderr: "pipe",
+  },
+});

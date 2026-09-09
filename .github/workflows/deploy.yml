@@ -1,0 +1,167 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [staging, production]
+        default: staging
+
+concurrency:
+  # Never let two deploys race a migration against each other.
+  group: deploy-${{ github.event.inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Staging deploys automatically on green main.
+  # ---------------------------------------------------------------------------
+  staging:
+    name: Deploy to staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
+    environment:
+      name: staging
+      url: https://staging.inkloom.com
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      # Migrations run BEFORE the deploy, so the new code never meets an old
+      # schema. Every migration must therefore be backward-compatible with the
+      # currently-running version — see docs/DEPLOYMENT.md.
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: pnpm db:migrate
+
+      - name: Build
+        run: pnpm build
+
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/web
+          command: deploy --env staging
+
+      - name: Health check
+        run: |
+          for attempt in $(seq 1 10); do
+            if curl -fsS https://staging.inkloom.com/api/ready | grep -q '"status":"ready"'; then
+              echo "Staging is ready."
+              exit 0
+            fi
+            echo "Attempt $attempt: not ready yet."
+            sleep 6
+          done
+          echo "::error::Staging did not become ready."
+          exit 1
+
+      - name: Post-deploy smoke test
+        env:
+          E2E_BASE_URL: https://staging.inkloom.com
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          # Read-only journeys only: this runs against a shared environment, so
+          # it must not create accounts or move credits.
+          pnpm exec playwright test e2e/marketing.spec.ts --project=chromium
+
+  # ---------------------------------------------------------------------------
+  # Production requires a human. The `production` GitHub environment is
+  # configured with required reviewers, so this job pauses for approval before
+  # any step runs.
+  # ---------------------------------------------------------------------------
+  production:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: github.event.inputs.environment == 'production'
+    environment:
+      name: production
+      url: https://inkloom.com
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      # Printed for the approving reviewer BEFORE anything is applied, so a
+      # destructive migration is seen rather than discovered.
+      - name: Show pending migrations for review
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          echo "### Migrations in this deploy" >> "$GITHUB_STEP_SUMMARY"
+          echo '```sql' >> "$GITHUB_STEP_SUMMARY"
+          git diff --name-only HEAD~1 HEAD -- packages/db/migrations | while read -r file; do
+            echo "-- $file"; cat "$file"
+          done >> "$GITHUB_STEP_SUMMARY" || echo "(none)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: pnpm db:migrate
+
+      - name: Build
+        run: pnpm build
+
+      - name: Confirm no secrets in the client bundle
+        run: pnpm secrets:check
+
+      - name: Deploy
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/web
+          command: deploy --env production
+
+      - name: Health check
+        run: |
+          for attempt in $(seq 1 12); do
+            if curl -fsS https://inkloom.com/api/ready | grep -q '"status":"ready"'; then
+              echo "Production is ready."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Production did not become ready — roll back (see docs/DEPLOYMENT.md)."
+          exit 1
+
+      - name: Post-deploy smoke test
+        env:
+          E2E_BASE_URL: https://inkloom.com
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm exec playwright test e2e/marketing.spec.ts --project=chromium
+
+      - name: Reconciliation must report no drift
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: pnpm credits:reconcile
+
+      - name: Record the deploy
+        run: |
+          {
+            echo "### Deployed to production"
+            echo ""
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Rollback: \`wrangler rollback --env production\` (see docs/DEPLOYMENT.md)"
+          } >> "$GITHUB_STEP_SUMMARY"

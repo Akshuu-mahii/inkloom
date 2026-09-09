@@ -1,0 +1,36 @@
+{
+  "name": "@inkloom/core",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./config": "./src/config/index.ts",
+    "./logger": "./src/util/logger.ts",
+    "./errors": "./src/util/errors.ts",
+    "./auth": "./src/auth/index.ts",
+    "./credits": "./src/credits/index.ts",
+    "./access-codes": "./src/access-codes/index.ts",
+    "./rbac": "./src/rbac/index.ts",
+    "./audit": "./src/audit/index.ts",
+    "./rate-limit": "./src/rate-limit/index.ts",
+    "./security": "./src/security/index.ts",
+    "./settings": "./src/settings/index.ts",
+    "./support": "./src/support/index.ts",
+    "./analytics": "./src/analytics/index.ts",
+    "./notifications": "./src/notifications/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@inkloom/db": "workspace:*",
+    "@inkloom/email": "workspace:*",
+    "better-auth": "^1.7.3",
+    "drizzle-orm": "^0.45.2",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

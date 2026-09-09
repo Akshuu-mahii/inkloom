@@ -1,0 +1,26 @@
+{
+  "name": "@inkloom/api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./openapi": "./src/openapi.ts",
+    "./schemas": "./src/schemas/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@inkloom/core": "workspace:*",
+    "@inkloom/db": "workspace:*",
+    "@inkloom/email": "workspace:*",
+    "better-auth": "^1.7.3",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.13.7",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

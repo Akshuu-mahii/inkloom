@@ -1,0 +1,15 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# pnpm 11 build-script allowlist. Only these packages may run install scripts.
+allowBuilds:
+  esbuild: true
+  workerd: true
+  sharp: true
+  "@tailwindcss/oxide": true
+
+minimumReleaseAgeExclude:
+  - "@cloudflare/vite-plugin@1.54.6"
+  - miniflare@5.20260908.0-alpha
+  - wrangler@4.130.0

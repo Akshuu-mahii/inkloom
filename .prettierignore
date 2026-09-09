@@ -1,0 +1,11 @@
+node_modules
+dist
+build
+.react-router
+.wrangler
+pnpm-lock.yaml
+packages/db/migrations
+coverage
+playwright-report
+test-results
+openapi.json
