@@ -24,12 +24,12 @@ pnpm dev                      # http://localhost:5173
 
 Then:
 
-| What            | Where                                       |
-| --------------- | ------------------------------------------- |
-| The app         | <http://localhost:5173>                     |
-| Email (Mailpit) | <http://localhost:8025>                     |
-| API description | <http://localhost:5173/api/v1/openapi.json> |
-| Readiness probe | <http://localhost:5173/api/ready>           |
+| What            | Where                                                          |
+| --------------- | -------------------------------------------------------------- |
+| The app         | <http://localhost:5173>                                        |
+| Email (Mailpit) | <http://localhost:8025> — a FAKE inbox; mail goes nowhere else |
+| API description | <http://localhost:5173/api/v1/openapi.json>                    |
+| Readiness probe | <http://localhost:5173/api/ready>                              |
 
 ### Become an admin
 
@@ -74,6 +74,7 @@ pnpm bootstrap:superadmin --email you@example.com
 pnpm codes:create --name "Launch" --credits 500
 pnpm credits:reconcile    # ledger vs. wallet; exit 1 on drift
 pnpm secrets:check        # scan source AND the built client bundle
+pnpm email:test --to you@example.com   # prove mail actually delivers
 pnpm openapi:emit         # regenerate openapi.json
 ```
 
