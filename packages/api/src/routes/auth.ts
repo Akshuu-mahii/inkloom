@@ -408,6 +408,35 @@ authRoutes.post("/verify-email", validateBody(verifyEmailSchema), async (c) => {
   return response;
 });
 
+/**
+ * The request headers with any session cookie removed.
+ *
+ * Both endpoints below act on an address supplied in the BODY, for someone who
+ * by definition cannot sign in — they have not confirmed their address, or they
+ * have forgotten their password. The browser may nonetheless still hold a
+ * session for a DIFFERENT account: a shared machine, or a developer's own test
+ * login.
+ *
+ * `sendVerificationEmail` refuses outright in that situation, raising
+ * "Email mismatch". Because the response here is deliberately neutral, the
+ * refusal was invisible: the caller was told the mail was on its way, the
+ * per-account rate-limit budget was spent, and nothing was sent.
+ *
+ * `requestPasswordReset` does not currently apply the same check. It is given
+ * the same treatment anyway — the two endpoints have identical requirements,
+ * and relying on one library version's leniency is how the first bug got in.
+ *
+ * Dropping the cookie removes nothing that was protecting anything: the
+ * address comes from the body, both endpoints are rate-limited per account and
+ * per IP, forgot-password additionally requires Turnstile, and the response is
+ * identical whether or not the account exists.
+ */
+function withoutSession(headers: Headers): Headers {
+  const copy = new Headers(headers);
+  copy.delete("cookie");
+  return copy;
+}
+
 // ---------------------------------------------------------------------------
 // POST /auth/resend-verification
 // ---------------------------------------------------------------------------
@@ -431,9 +460,19 @@ authRoutes.post(
         `user:${account.id}`,
       );
       if (allowed.allowed) {
+        // Swallowing this silently would be the worst of both worlds: the
+        // caller is told the mail is on its way (deliberately — the response
+        // must not reveal whether the account exists) while nobody learns that
+        // it never left. The neutral response stays; the failure gets logged.
         await auth.api
-          .sendVerificationEmail({ body: { email }, headers: c.req.raw.headers })
-          .catch(() => null);
+          .sendVerificationEmail({ body: { email }, headers: withoutSession(c.req.raw.headers) })
+          .catch((error: unknown) => {
+            c.get("logger").error("resend_verification_failed", {
+              userId: account.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return null;
+          });
       }
     }
 
@@ -488,9 +527,16 @@ authRoutes.post(
       await auth.api
         .requestPasswordReset({
           body: { email, redirectTo: "/auth/reset-password" },
-          headers: c.req.raw.headers,
+          headers: withoutSession(c.req.raw.headers),
         })
-        .catch(() => null);
+        .catch((error: unknown) => {
+          // Neutral to the caller, loud to the operator. A reset that never
+          // leaves is indistinguishable from one that did, from the outside.
+          c.get("logger").error("password_reset_send_failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return null;
+        });
     }
 
     await audit.security({

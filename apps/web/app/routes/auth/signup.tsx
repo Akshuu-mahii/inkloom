@@ -238,6 +238,53 @@ export default function Signup({ loaderData }: Route.ComponentProps) {
         </button>
       </Form>
 
+      {loaderData.googleEnabled && (
+        <>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.75rem",
+              margin: "1.5rem 0",
+              color: "var(--color-muted)",
+              fontSize: "var(--text-micro)",
+            }}
+          >
+            <hr className="rule" style={{ flex: 1 }} />
+            <span>or</span>
+            <hr className="rule" style={{ flex: 1 }} />
+          </div>
+          {/*
+            A plain link, not a form POST — same reasoning as the sign-in page:
+            the API refuses urlencoded bodies on state-changing requests, and
+            nothing is mutated until the provider redirects back with a code.
+
+            Signing up through Google skips email verification, because Google
+            has already proven the address. It also accepts the terms, which is
+            why the link says so plainly rather than burying it.
+          */}
+          <a
+            href="/api/auth/sign-in/social?provider=google&callbackURL=/app"
+            className="btn btn-outline"
+            style={{ width: "100%" }}
+            rel="nofollow"
+          >
+            Continue with Google
+          </a>
+          <p
+            style={{
+              marginTop: "0.625rem",
+              fontSize: "var(--text-micro)",
+              color: "var(--color-muted)",
+              lineHeight: 1.5,
+            }}
+          >
+            Continuing with Google creates your account and accepts the{" "}
+            <Link to="/terms">Terms</Link> and <Link to="/privacy">Privacy Policy</Link>.
+          </p>
+        </>
+      )}
+
       <p
         style={{
           marginTop: "1.5rem",

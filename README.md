@@ -155,11 +155,11 @@ mail server. Reproduce with the commands above.
 
 | Suite                     | Tests   | Result   |
 | ------------------------- | ------- | -------- |
-| Unit                      | 58      | pass     |
-| Integration + concurrency | 38      | pass     |
+| Unit                      | 80      | pass     |
+| Integration + concurrency | 40      | pass     |
 | Security                  | 54      | pass     |
 | End-to-end (Playwright)   | 92      | pass     |
-| **Total**                 | **242** | **pass** |
+| **Total**                 | **266** | **pass** |
 
 The end-to-end figure counts **both** Playwright projects — 70 in `chromium` plus
 22 in `mobile`, which re-runs the accessibility and phone-layout journeys on a

@@ -326,6 +326,71 @@ describe("login", () => {
 });
 
 // ===========================================================================
+describe("a stale session in the browser", () => {
+  /*
+   * Both of these endpoints exist for someone who cannot sign in: an address
+   * that was never confirmed, or a password that was forgotten. The browser
+   * making the request may still hold a session for a DIFFERENT account — a
+   * shared machine, or simply a developer's own test login.
+   *
+   * Better Auth refuses to act when the session and the target address
+   * disagree, raising "Email mismatch". Because the response here is
+   * deliberately neutral — it must not reveal whether an account exists — that
+   * refusal used to be invisible: the caller was told the mail was on its way,
+   * the per-account rate-limit budget was spent, and nothing was sent.
+   *
+   * This is what that regression looks like from the outside.
+   */
+
+  it("still sends a verification email while signed in as someone else", async () => {
+    // A confirmed account whose session we will carry.
+    const bystanderCookies = await signupAndVerify("bystander@example.test");
+
+    // A second, unconfirmed account — the one actually asking for the mail.
+    await signup({ email: "waiting@example.test" });
+    app.mail.clear();
+
+    const result = await app.json("/v1/auth/resend-verification", {
+      method: "POST",
+      cookies: bystanderCookies,
+      body: JSON.stringify({ email: "waiting@example.test" }),
+    });
+
+    expect(result.status).toBe(200);
+    const message = app.mail.lastTo("waiting@example.test");
+    expect(message?.template).toBe("verify_email");
+    expect(extractToken(message!.html)).toBeTruthy();
+    // And nothing was sent to the account whose session happened to be present.
+    expect(app.mail.lastTo("bystander@example.test")).toBeUndefined();
+  });
+
+  it("still sends a password reset while signed in as someone else", async () => {
+    const bystanderCookies = await signupAndVerify("bystander2@example.test");
+    await signupAndVerify("forgetful@example.test");
+    app.mail.clear();
+
+    const result = await app.json("/v1/auth/forgot-password", {
+      method: "POST",
+      cookies: bystanderCookies,
+      body: JSON.stringify({ email: "forgetful@example.test" }),
+    });
+
+    expect(result.status).toBe(200);
+    const message = app.mail.lastTo("forgetful@example.test");
+    expect(message?.template).toBe("password_reset");
+
+    // The link has to actually work, not merely exist.
+    const token = extractToken(message!.html);
+    const reset = await app.json("/v1/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ token, password: "a-totally-new-passphrase" }),
+    });
+    expect(reset.status).toBe(200);
+    expect((await login("forgetful@example.test", "a-totally-new-passphrase")).status).toBe(200);
+  });
+});
+
+// ===========================================================================
 describe("password reset", () => {
   it("sends a single-use link and invalidates it after use", async () => {
     await signupAndVerify();

@@ -21,6 +21,7 @@ import { Mailer } from "@inkloom/core/notifications";
 import { createMonitoring, sentryTransport } from "@inkloom/core";
 import {
   ConsoleTransport,
+  DevelopmentMailRouter,
   MailpitTransport,
   ResendTransport,
   type EmailTransport,
@@ -51,8 +52,19 @@ export * as schemas from "./schemas/index";
 /** Build the transport the configuration asks for. */
 export function createTransport(config: AppConfig): EmailTransport {
   switch (config.EMAIL_TRANSPORT) {
-    case "resend":
-      return new ResendTransport(config.RESEND_API_KEY ?? "");
+    case "resend": {
+      const resend = new ResendTransport(config.RESEND_API_KEY ?? "");
+      // In development, keep RFC-reserved test addresses local so the E2E
+      // suite neither fails on rejected recipients nor spends the daily send
+      // quota. Real addresses still go to the real provider. Staging and
+      // production route everything to Resend, with no local fallback to
+      // silently swallow a message.
+      if (config.INKLOOM_ENV !== "development") return resend;
+      return new DevelopmentMailRouter(
+        resend,
+        new MailpitTransport(`http://${config.MAILPIT_HOST}:8025`),
+      );
+    }
     case "mailpit":
       // Mailpit's HTTP API, not SMTP — Workers cannot open an SMTP socket, and
       // using HTTP locally keeps dev on the same code path as production.

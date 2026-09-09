@@ -107,6 +107,60 @@ export class ConsoleTransport implements EmailTransport {
   }
 }
 
+/**
+ * Domains reserved by RFC 2606 and RFC 6761 for testing and documentation.
+ *
+ * These can never be registered, so no mailbox behind one can ever exist. Any
+ * message addressed to one is undeliverable by definition — which is exactly
+ * what makes them safe to keep local.
+ */
+const RESERVED_TLDS = ["test", "example", "invalid", "localhost"];
+const RESERVED_DOMAINS = ["example.com", "example.net", "example.org"];
+
+/** True when no real mailbox can possibly exist at this address. */
+export function isUndeliverableTestAddress(address: string): boolean {
+  const domain = address.trim().toLowerCase().split("@").pop() ?? "";
+  if (!domain) return true;
+  return (
+    RESERVED_TLDS.some((tld) => domain === tld || domain.endsWith(`.${tld}`)) ||
+    RESERVED_DOMAINS.some((d) => domain === d || domain.endsWith(`.${d}`))
+  );
+}
+
+/**
+ * Development-only routing between a real provider and the local catcher.
+ *
+ * Wanting real mail in a real inbox during development and wanting a test suite
+ * are not in conflict, but a single flat transport makes them look that way.
+ * Point everything at Resend and the E2E suite — which creates dozens of
+ * `@example.test` accounts per run — gets every one of them rejected, and burns
+ * the daily send quota trying. Point everything at Mailpit and no real message
+ * ever arrives.
+ *
+ * So the recipient decides. An RFC-reserved address cannot belong to anyone, so
+ * it goes to Mailpit; anything else is a real person and goes to the real
+ * provider. There is no allowlist to maintain and no way for a fixture to
+ * accidentally email a stranger.
+ *
+ * Development only. Staging and production always use the real transport
+ * directly — see `createTransport`.
+ */
+export class DevelopmentMailRouter implements EmailTransport {
+  readonly name: string;
+
+  constructor(
+    private readonly real: EmailTransport,
+    private readonly local: EmailTransport,
+  ) {
+    this.name = `${real.name}+${local.name}`;
+  }
+
+  async send(input: SendEmailInput, from: string): Promise<SendResult> {
+    const transport = isUndeliverableTestAddress(input.to) ? this.local : this.real;
+    return transport.send(input, from);
+  }
+}
+
 function parseAddress(value: string): { Email: string; Name?: string } {
   const match = /^\s*(.*?)\s*<([^>]+)>\s*$/.exec(value);
   if (match) return { Email: match[2]!.trim(), Name: match[1]!.replace(/^"|"$/g, "") };
