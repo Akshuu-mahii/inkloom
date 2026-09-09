@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { settled, signUpAndVerify, uniqueEmail } from "./support";
 
 /**
@@ -74,9 +74,16 @@ test.describe("keyboard operation", () => {
     await page.goto("/auth/signup");
     await settled(page);
 
-    // Tab to each field in turn and type — no clicking anywhere.
-    await page.keyboard.press("Tab"); // skip link
-    await page.keyboard.press("Tab"); // name
+    /*
+     * Tab to each field in turn and type — no clicking anywhere.
+     *
+     * How many stops precede the form is a layout detail, not the thing under
+     * test: the narrow layout collapses the aside and puts a focusable mark
+     * above the form, so a hard-coded count passes on desktop and fails on a
+     * phone for a page that is perfectly operable. Tab until the first field
+     * has focus, then assert the order of the fields themselves.
+     */
+    await tabTo(page, '[name="name"]');
     await page.keyboard.type("Keyboard User");
     await page.keyboard.press("Tab");
     await page.keyboard.type(uniqueEmail("keyboard"));
@@ -256,3 +263,21 @@ test.describe("mobile", () => {
     await expect(page.getByLabel("Access code")).toBeVisible();
   });
 });
+
+/**
+ * Press Tab until `selector` holds focus.
+ *
+ * Bounded, so a form that cannot be reached by keyboard fails the test rather
+ * than hanging it.
+ */
+async function tabTo(page: Page, selector: string, maxPresses = 12): Promise<void> {
+  for (let i = 0; i < maxPresses; i++) {
+    await page.keyboard.press("Tab");
+    const onTarget = await page.evaluate(
+      (sel) => document.activeElement === document.querySelector(sel),
+      selector,
+    );
+    if (onTarget) return;
+  }
+  throw new Error(`"${selector}" was not reachable with ${maxPresses} Tab presses`);
+}

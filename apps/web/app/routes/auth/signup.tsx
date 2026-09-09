@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import type { Route } from "./+types/signup";
 import { AuthHeading } from "./layout";
 import { Field, Notice } from "../../components/ui";
-import { Turnstile } from "../../components/turnstile";
+import { Turnstile, type TurnstileStatus } from "../../components/turnstile";
 import { call, fieldErrors } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
 import { servicesContext } from "../../lib/context";
@@ -86,10 +86,16 @@ export default function Signup({ loaderData }: Route.ComponentProps) {
   const navigation = useNavigation();
   const [searchParams] = useSearchParams();
   const [password, setPassword] = useState("");
-  const [verified, setVerified] = useState(false);
+  const [checkStatus, setCheckStatus] = useState<TurnstileStatus>("pending");
   const startedRef = useRef(false);
 
   const submitting = navigation.state === "submitting";
+  /**
+   * Only a check that is still working holds the button. Once Turnstile has
+   * given up, blocking further would leave a dead control on the page; the
+   * server still refuses a missing token, so nothing is let through here.
+   */
+  const awaitingCheck = Boolean(loaderData.turnstileSiteKey) && checkStatus === "pending";
   const fields = actionData?.fields ?? {};
 
   if (!loaderData.signupEnabled) {
@@ -214,7 +220,7 @@ export default function Signup({ loaderData }: Route.ComponentProps) {
         </label>
 
         {loaderData.turnstileSiteKey && (
-          <Turnstile siteKey={loaderData.turnstileSiteKey} onReady={setVerified} />
+          <Turnstile siteKey={loaderData.turnstileSiteKey} onStatusChange={setCheckStatus} />
         )}
 
         <button
@@ -222,11 +228,11 @@ export default function Signup({ loaderData }: Route.ComponentProps) {
           className="btn btn-primary"
           /* Held until Turnstile has produced a token, so nobody submits into a
              guaranteed rejection. */
-          disabled={submitting || (Boolean(loaderData.turnstileSiteKey) && !verified)}
+          disabled={submitting || awaitingCheck}
         >
           {submitting
             ? "Creating your account…"
-            : loaderData.turnstileSiteKey && !verified
+            : awaitingCheck
               ? "Checking you're human…"
               : "Create account"}
         </button>

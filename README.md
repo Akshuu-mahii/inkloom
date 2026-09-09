@@ -149,7 +149,7 @@ cookie prefix apply.
 
 ## Test results
 
-Run on 9 September 2026, against a real PostgreSQL, a real browser and a real
+Run on 10 September 2026, against a real PostgreSQL, a real browser and a real
 mail server. Reproduce with the commands above.
 
 | Suite                     | Tests   | Result   |
@@ -157,8 +157,13 @@ mail server. Reproduce with the commands above.
 | Unit                      | 58      | pass     |
 | Integration + concurrency | 38      | pass     |
 | Security                  | 54      | pass     |
-| End-to-end (Playwright)   | 65      | pass     |
-| **Total**                 | **215** | **pass** |
+| End-to-end (Playwright)   | 92      | pass     |
+| **Total**                 | **242** | **pass** |
+
+The end-to-end figure counts **both** Playwright projects — 70 in `chromium` plus
+22 in `mobile`, which re-runs the accessibility and phone-layout journeys on a
+Pixel 7. An earlier revision of this table said 65, having counted `chromium`
+alone; the mobile project was running but going untallied.
 
 Also clean: `tsc` across every package, ESLint, Prettier, and the secret scan
 against a real production client bundle.

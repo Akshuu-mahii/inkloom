@@ -3,7 +3,7 @@ import { Form, Link, useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/forgot-password";
 import { AuthHeading } from "./layout";
 import { Field, Notice } from "../../components/ui";
-import { Turnstile } from "../../components/turnstile";
+import { Turnstile, type TurnstileStatus } from "../../components/turnstile";
 import { call } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
 import { servicesContext } from "../../lib/context";
@@ -44,7 +44,9 @@ export async function action({ request }: Route.ActionArgs) {
 export default function ForgotPassword({ loaderData }: Route.ComponentProps) {
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
-  const [verified, setVerified] = useState(false);
+  const [checkStatus, setCheckStatus] = useState<TurnstileStatus>("pending");
+  // Held only while the check is still working — never after it has given up.
+  const awaitingCheck = Boolean(loaderData.turnstileSiteKey) && checkStatus === "pending";
 
   if (actionData?.sent) {
     return (
@@ -88,7 +90,7 @@ export default function ForgotPassword({ loaderData }: Route.ComponentProps) {
           <Turnstile
             siteKey={loaderData.turnstileSiteKey}
             action="forgot-password"
-            onReady={setVerified}
+            onStatusChange={setCheckStatus}
           />
         )}
         <button
@@ -96,13 +98,11 @@ export default function ForgotPassword({ loaderData }: Route.ComponentProps) {
           className="btn btn-ink"
           /* Held until Turnstile has a token, so nobody submits into a
              guaranteed "we couldn't verify you're human" rejection. */
-          disabled={
-            navigation.state === "submitting" || (Boolean(loaderData.turnstileSiteKey) && !verified)
-          }
+          disabled={navigation.state === "submitting" || awaitingCheck}
         >
           {navigation.state === "submitting"
             ? "Sending…"
-            : loaderData.turnstileSiteKey && !verified
+            : awaitingCheck
               ? "Checking you're human…"
               : "Send reset link"}
         </button>

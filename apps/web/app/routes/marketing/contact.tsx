@@ -4,7 +4,7 @@ import type { Route } from "./+types/contact";
 import { buildMeta } from "../../lib/seo";
 import { call, fieldErrors } from "../../lib/api";
 import { Field, Notice, Select, TextArea } from "../../components/ui";
-import { Turnstile } from "../../components/turnstile";
+import { Turnstile, type TurnstileStatus } from "../../components/turnstile";
 import { servicesContext } from "../../lib/context";
 
 export function meta({ location }: Route.MetaArgs) {
@@ -53,7 +53,9 @@ export async function action({ request }: Route.ActionArgs) {
 export default function Contact({ loaderData }: Route.ComponentProps) {
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
-  const [verified, setVerified] = useState(false);
+  const [checkStatus, setCheckStatus] = useState<TurnstileStatus>("pending");
+  // Held only while the check is still working — never after it has given up.
+  const awaitingCheck = Boolean(loaderData.turnstileSiteKey) && checkStatus === "pending";
 
   if (actionData?.reference) {
     return (
@@ -187,7 +189,7 @@ export default function Contact({ loaderData }: Route.ComponentProps) {
                   <Turnstile
                     siteKey={loaderData.turnstileSiteKey}
                     action="contact"
-                    onReady={setVerified}
+                    onStatusChange={setCheckStatus}
                   />
                 )}
 
@@ -195,14 +197,11 @@ export default function Contact({ loaderData }: Route.ComponentProps) {
                   <button
                     type="submit"
                     className="btn btn-primary"
-                    disabled={
-                      navigation.state === "submitting" ||
-                      (Boolean(loaderData.turnstileSiteKey) && !verified)
-                    }
+                    disabled={navigation.state === "submitting" || awaitingCheck}
                   >
                     {navigation.state === "submitting"
                       ? "Sending…"
-                      : loaderData.turnstileSiteKey && !verified
+                      : awaitingCheck
                         ? "Checking you're human…"
                         : "Send message"}
                   </button>
