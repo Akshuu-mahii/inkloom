@@ -2,6 +2,7 @@ import { Link, NavLink, Outlet, redirect, useLocation } from "react-router";
 import type { Route } from "./+types/layout";
 import { Logo } from "../../components/logo";
 import { call, type Me } from "../../lib/api";
+import { formatCredits } from "../../components/ui";
 
 /**
  * Dashboard shell.
@@ -58,7 +59,7 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
 
           <div className="app-bar-right">
             <span className="app-balance numeric" title="Your credit balance">
-              {me.credits.balance.toLocaleString("en-GB")} credits
+              {formatCredits(me.credits.balance)}
             </span>
             {/* Staff only. The link is hidden from ordinary users as a courtesy;
                 the server refuses them regardless, which is the real control. */}
@@ -117,7 +118,8 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
         }
         .app-admin-link {
           font-size: var(--text-fine); font-weight: 600; text-decoration: none;
-          color: var(--color-loop);
+          /* Type, so the readable orange — not the brand fill. */
+          color: var(--color-loop-text);
         }
         .app-signout { min-height: 2rem; padding: 0.25rem 0.75rem; font-size: var(--text-fine); }
         .app-banner {

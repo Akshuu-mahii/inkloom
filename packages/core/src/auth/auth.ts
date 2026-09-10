@@ -324,6 +324,16 @@ export function createAuth(deps: AuthDeps) {
             clientId: config.GOOGLE_CLIENT_ID!,
             clientSecret: config.GOOGLE_CLIENT_SECRET!,
             /**
+             * Always show Google's account chooser.
+             *
+             * Without this, Google silently reuses whichever account the
+             * browser last used, so anyone with more than one — a personal
+             * address and a work one, say — gets signed into the wrong Inkloom
+             * account with no visible choice and no obvious way to correct it.
+             * On a shared machine it is worse than confusing.
+             */
+            prompt: "select_account",
+            /**
              * Only link a Google identity to an existing account when Google
              * asserts the address is verified. Without this check, anyone able
              * to create an unverified Google profile for an address could take

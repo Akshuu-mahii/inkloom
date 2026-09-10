@@ -8,6 +8,7 @@ import {
   Pill,
   Stat,
   TextArea,
+  formatCredits,
   formatDate,
   formatRelative,
 } from "../../components/ui";
@@ -168,7 +169,7 @@ export default function CampaignDetailPage({ loaderData }: Route.ComponentProps)
           value={`${c.redemptionCount}${c.maxTotalRedemptions ? ` / ${c.maxTotalRedemptions}` : ""}`}
           label="Redemptions"
         />
-        <Stat value={d.creditsIssued.toLocaleString("en-GB")} label="Credits issued" />
+        <Stat value={formatCredits(d.creditsIssued)} label="Credits issued" />
         <Stat value={c.maxRedemptionsPerUser} label="Per user" />
       </section>
 

@@ -313,7 +313,8 @@ export function Stat({
 }) {
   const color =
     tone === "loop"
-      ? "var(--color-loop)"
+      ? // A stat is a number someone reads, so it takes the readable orange.
+        "var(--color-loop-text)"
       : tone === "muted"
         ? "var(--color-muted)"
         : "var(--color-ink)";
@@ -385,7 +386,24 @@ export function formatRelative(value: string | Date | null): string {
   return formatDate(date);
 }
 
-/** Signed credit amount, with the sign as a character not just a colour. */
+/**
+ * A credit balance, shown as a dollar amount.
+ *
+ * Credits are stored in the ledger as whole units and one unit is one dollar,
+ * so this is a presentation concern only — nothing downstream of it does
+ * arithmetic on the formatted string. No decimal places, because the ledger has
+ * none and printing "$20.00" would imply a precision the data does not carry.
+ *
+ * Worth being clear about what this does NOT mean: V1 takes no payments, and
+ * credits cannot be bought, sold or withdrawn. The symbol communicates what a
+ * credit is worth, not that money has changed hands. Every surface that shows a
+ * balance says so in words nearby.
+ */
 export function formatCredits(amount: number): string {
-  return `${amount > 0 ? "+" : amount < 0 ? "−" : ""}${Math.abs(amount).toLocaleString("en-GB")}`;
+  return `$${Math.abs(amount).toLocaleString("en-GB")}`;
+}
+
+/** Signed credit amount, with the sign as a character not just a colour. */
+export function formatCreditDelta(amount: number): string {
+  return `${amount > 0 ? "+" : amount < 0 ? "−" : ""}${formatCredits(amount)}`;
 }

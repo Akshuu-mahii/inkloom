@@ -44,7 +44,7 @@ pnpm bootstrap:superadmin --email you@example.com
 
 ### Try the credit system
 
-Redeem `INKLOOMHACKATHON` at `/app/redeem` for 500 credits. Try it twice: the
+Redeem `INKLOOMHACKATHON` at `/app/redeem` for $20 in credits. Try it twice: the
 second attempt is refused rather than doubling your balance, and the refusal is
 enforced by a database constraint, not by a check you could race.
 
@@ -71,7 +71,7 @@ pnpm db:reset             # DESTRUCTIVE; asks you to type the database name
 pnpm db:studio            # Drizzle Studio
 
 pnpm bootstrap:superadmin --email you@example.com
-pnpm codes:create --name "Launch" --credits 500
+pnpm codes:create --name "Launch" --credits 20
 pnpm credits:reconcile    # ledger vs. wallet; exit 1 on drift
 pnpm secrets:check        # scan source AND the built client bundle
 pnpm email:test --to you@example.com   # prove mail actually delivers

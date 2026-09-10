@@ -2,7 +2,7 @@ import { Form, useActionData, useNavigation, useOutletContext } from "react-rout
 import type { Route } from "./+types/redeem";
 import { call, type Me } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
-import { Field, Notice, PageHeader } from "../../components/ui";
+import { Field, Notice, PageHeader, formatCredits } from "../../components/ui";
 import { track } from "../../lib/analytics";
 import { useEffect } from "react";
 
@@ -102,15 +102,15 @@ export default function Redeem() {
             title={
               actionData.success.alreadyRedeemed
                 ? "You have already redeemed this code"
-                : `${actionData.success.creditsGranted} credits added`
+                : `${formatCredits(actionData.success.creditsGranted)} in credits added`
             }
           >
             {actionData.success.alreadyRedeemed ? (
-              <>Your balance is {actionData.success.balance.toLocaleString("en-GB")} credits.</>
+              <>Your balance is {formatCredits(actionData.success.balance)}.</>
             ) : (
               <>
                 {actionData.success.campaignName} — your balance is now{" "}
-                <strong>{actionData.success.balance.toLocaleString("en-GB")} credits</strong>.
+                <strong>{formatCredits(actionData.success.balance)}</strong> in credits.
               </>
             )}
           </Notice>

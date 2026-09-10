@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { Route } from "./+types/security";
 import { call, fieldErrors, withCookies, type Me } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
-import { Field, Notice, PageHeader, Pill } from "../../components/ui";
+import { Field, Notice, PageHeader, Pill, formatCredits } from "../../components/ui";
 
 export function meta({ location }: Route.MetaArgs) {
   return buildMeta({
@@ -264,7 +264,7 @@ export default function Security() {
           </h2>
           <p style={{ marginTop: "0.5rem", color: "var(--color-muted)" }}>
             This cannot be undone. Your name, email and profile are removed, every session ends,
-            pending email links stop working, and your {me.credits.balance.toLocaleString("en-GB")}{" "}
+            pending email links stop working, and your {formatCredits(me.credits.balance)} in
             credits are forfeited.
           </p>
 

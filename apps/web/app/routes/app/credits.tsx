@@ -2,7 +2,15 @@ import { Link, useOutletContext } from "react-router";
 import type { Route } from "./+types/credits";
 import { call, type LedgerEntry, type Me, type Paged } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
-import { Empty, Notice, PageHeader, Stat, formatCredits, formatDate } from "../../components/ui";
+import {
+  Empty,
+  Notice,
+  PageHeader,
+  Stat,
+  formatCreditDelta,
+  formatCredits,
+  formatDate,
+} from "../../components/ui";
 import { TrackView } from "../../components/track";
 
 export function meta({ location }: Route.MetaArgs) {
@@ -64,11 +72,7 @@ export default function Credits({ loaderData }: Route.ComponentProps) {
           marginBottom: "2rem",
         }}
       >
-        <Stat
-          value={me.credits.balance.toLocaleString("en-GB")}
-          label="Current balance"
-          tone="loop"
-        />
+        <Stat value={formatCredits(me.credits.balance)} label="Current balance" tone="loop" />
         <Stat value={loaderData.entries.length} label="Entries shown" />
         <Stat value={me.redemptions} label="Codes redeemed" />
       </section>
@@ -124,13 +128,13 @@ export default function Credits({ loaderData }: Route.ComponentProps) {
                       color: entry.amount > 0 ? "var(--color-positive)" : "var(--color-critical)",
                     }}
                   >
-                    {formatCredits(entry.amount)}
+                    {formatCreditDelta(entry.amount)}
                   </td>
                   <td
                     className="numeric"
                     style={{ textAlign: "right", color: "var(--color-muted)" }}
                   >
-                    {entry.balanceAfter.toLocaleString("en-GB")}
+                    {formatCredits(entry.balanceAfter)}
                   </td>
                 </tr>
               ))}

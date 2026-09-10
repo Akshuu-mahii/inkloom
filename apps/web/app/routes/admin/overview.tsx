@@ -2,7 +2,7 @@ import { Link } from "react-router";
 import type { Route } from "./+types/overview";
 import { call } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
-import { Notice, PageHeader, Pill, Stat, formatRelative } from "../../components/ui";
+import { Notice, PageHeader, Pill, Stat, formatCredits, formatRelative } from "../../components/ui";
 
 export function meta({ location }: Route.MetaArgs) {
   return buildMeta({
@@ -111,12 +111,8 @@ export default function AdminOverview({ loaderData }: Route.ComponentProps) {
       </section>
 
       <section className="stat-row" style={{ marginTop: "2.5rem" }}>
-        <Stat
-          value={o.credits.granted.toLocaleString("en-GB")}
-          label="Credits granted"
-          tone="loop"
-        />
-        <Stat value={o.credits.outstanding.toLocaleString("en-GB")} label="Credits outstanding" />
+        <Stat value={formatCredits(o.credits.granted)} label="Credits granted" tone="loop" />
+        <Stat value={formatCredits(o.credits.outstanding)} label="Credits outstanding" />
         <Stat value={o.redemptions.successful} label="Successful redemptions" />
         <Stat
           value={o.redemptions.blocked}
@@ -193,7 +189,7 @@ export default function AdminOverview({ loaderData }: Route.ComponentProps) {
                         {c.redemptions}
                       </td>
                       <td className="numeric" style={{ textAlign: "right" }}>
-                        {(c.redemptions * c.creditAmount).toLocaleString("en-GB")}
+                        {formatCredits(c.redemptions * c.creditAmount)}
                       </td>
                     </tr>
                   ))

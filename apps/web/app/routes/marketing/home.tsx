@@ -122,7 +122,7 @@ function Hero() {
           <dl className="spec-list">
             <div>
               <dt>Construction</dt>
-              <dd>Two circles, r = 18</dd>
+              <dd>Two circles, r = 158</dd>
             </div>
             <div>
               <dt>Junction</dt>
@@ -130,7 +130,7 @@ function Hero() {
             </div>
             <div>
               <dt>Stroke</dt>
-              <dd>Monoline, 13u</dd>
+              <dd>Monoline, 134u</dd>
             </div>
           </dl>
         </div>

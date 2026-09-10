@@ -11,7 +11,9 @@ import { settled, signUpAndVerify, uniqueEmail } from "./support";
  */
 
 const SEEDED_CODE = "INKLOOMHACKATHON";
-const SEEDED_CREDITS = 500;
+const SEEDED_CREDITS = 20;
+/** Balances are shown as dollar amounts; see `formatCredits` in components/ui. */
+const SEEDED_DISPLAY = `$${SEEDED_CREDITS}`;
 
 test.describe("redeeming an access code", () => {
   test("a verified user redeems the seeded code and the balance moves", async ({ page }) => {
@@ -23,20 +25,22 @@ test.describe("redeeming an access code", () => {
     await page.getByLabel("Access code").fill(SEEDED_CODE);
     await page.getByRole("button", { name: /Redeem code/ }).click();
 
-    await expect(page.getByText(new RegExp(`${SEEDED_CREDITS} credits added`, "i"))).toBeVisible({
+    await expect(
+      page.getByText(new RegExp(`\\${SEEDED_DISPLAY} in credits added`, "i")),
+    ).toBeVisible({
       timeout: 20_000,
     });
 
     // The dashboard agrees.
     await page.goto("/app");
     await settled(page);
-    await expect(page.getByText(String(SEEDED_CREDITS)).first()).toBeVisible();
+    await expect(page.getByText(SEEDED_DISPLAY).first()).toBeVisible();
 
     // And so does the ledger.
     await page.goto("/app/credits");
     await settled(page);
     await expect(page.getByRole("cell", { name: /Access code/ }).first()).toBeVisible();
-    await expect(page.getByText(`+${SEEDED_CREDITS}`).first()).toBeVisible();
+    await expect(page.getByText(`+${SEEDED_DISPLAY}`).first()).toBeVisible();
   });
 
   test("the code is case- and separator-insensitive", async ({ page }) => {

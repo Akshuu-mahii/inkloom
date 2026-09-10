@@ -20,6 +20,7 @@
  *     leak a ScrollTrigger or a RAF loop.
  */
 import { useEffect, useRef, useState } from "react";
+import { LOOP_ASPECT, LOOP_PATH, LOOP_STROKE, LOOP_VIEWBOX } from "./logo";
 
 export function ConstructionScroll({ children }: { children: React.ReactNode }) {
   const container = useRef<HTMLDivElement>(null);
@@ -102,25 +103,25 @@ export function ConstructionMark({ size = 340 }: { size?: number }) {
   return (
     <svg
       width={size}
-      height={size * 0.62}
-      viewBox="0 0 81 50"
+      height={size / LOOP_ASPECT}
+      viewBox={LOOP_VIEWBOX}
       role="img"
       aria-label="The Inkloom mark, constructed from two circles"
     >
       <g className="construction">
-        <line data-build="guide" x1="0" y1="25" x2="81" y2="25" />
-        <line data-build="guide" x1="22" y1="3" x2="22" y2="47" />
-        <line data-build="guide" x1="59" y1="3" x2="59" y2="47" />
-        <line data-build="guide" x1="40.5" y1="3" x2="40.5" y2="47" />
-        <circle data-build="circle" cx="22" cy="25" r="18.5" />
-        <circle data-build="circle" cx="59" cy="25" r="18.5" />
+        <line data-build="guide" x1="0" y1="225" x2="840" y2="225" />
+        <line data-build="guide" x1="225" y1="30" x2="225" y2="420" />
+        <line data-build="guide" x1="615" y1="30" x2="615" y2="420" />
+        <line data-build="guide" x1="420" y1="30" x2="420" y2="420" />
+        <circle data-build="circle" cx="225" cy="225" r="158" />
+        <circle data-build="circle" cx="615" cy="225" r="158" />
       </g>
       <path
         data-build="stroke"
-        d="M 40.5 25 C 36 13 30 6.5 22 6.5 C 13 6.5 6.5 14.7 6.5 25 C 6.5 35.3 13 43.5 22 43.5 C 30 43.5 36 37 40.5 25 C 45 13 51 6.5 59 6.5 C 68 6.5 74.5 14.7 74.5 25 C 74.5 35.3 68 43.5 59 43.5 C 51 43.5 45 37 40.5 25 Z"
+        d={LOOP_PATH}
         fill="none"
         stroke="var(--color-loop)"
-        strokeWidth={13}
+        strokeWidth={LOOP_STROKE}
         strokeLinecap="round"
         strokeLinejoin="round"
         pathLength={100}

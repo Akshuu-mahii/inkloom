@@ -15,6 +15,7 @@ import {
   PageHeader,
   TextArea,
   formatCredits,
+  formatCreditDelta,
   formatDate,
 } from "../../components/ui";
 import { hasPermission, type Role } from "@inkloom/core/rbac";
@@ -140,8 +141,8 @@ export default function AdminCredits({ loaderData }: Route.ComponentProps) {
       {actionData?.intent === "adjust" && actionData.result && (
         <div style={{ marginBottom: "1.5rem" }}>
           <Notice tone="positive" title="Adjustment applied">
-            Balance moved from {actionData.result.balanceBefore.toLocaleString("en-GB")} to{" "}
-            {actionData.result.balanceAfter.toLocaleString("en-GB")} credits.
+            Balance moved from {formatCredits(actionData.result.balanceBefore)} to{" "}
+            {formatCredits(actionData.result.balanceAfter)}.
           </Notice>
         </div>
       )}
@@ -210,7 +211,7 @@ export default function AdminCredits({ loaderData }: Route.ComponentProps) {
                           color: e.amount > 0 ? "var(--color-positive)" : "var(--color-critical)",
                         }}
                       >
-                        {formatCredits(e.amount)}
+                        {formatCreditDelta(e.amount)}
                       </td>
                       <td
                         className="numeric"

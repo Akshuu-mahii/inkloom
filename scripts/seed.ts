@@ -88,7 +88,7 @@ async function seedHackathonCampaign(db: Database, pepper: string) {
       'Inkloom Hackathon Early Access',
       'Launch campaign for hackathon attendees. Seeded, not hardcoded in any route.',
       ${fingerprint}, ${masked}, ${last4},
-      500, 2000, 1,
+      20, 2000, 1,
       ${new Date(Date.now() + 365 * 24 * 3600 * 1000)},
       'hackathon-2026',
       'enabled'
@@ -98,7 +98,7 @@ async function seedHackathonCampaign(db: Database, pepper: string) {
   `);
 
   if (result.rows.length > 0) {
-    console.log(`  campaign           INKLOOMHACKATHON -> ${masked} (500 credits)`);
+    console.log(`  campaign           INKLOOMHACKATHON -> ${masked} ($20 in credits)`);
   } else {
     console.log(`  campaign           INKLOOMHACKATHON already present (${masked})`);
   }
@@ -119,14 +119,14 @@ async function seedSampleUsers(db: Database) {
       email: "ada@example.test",
       verified: true,
       status: "active",
-      credits: 500,
+      credits: 20,
     },
     {
       name: "Grace Hopper",
       email: "grace@example.test",
       verified: true,
       status: "active",
-      credits: 250,
+      credits: 10,
     },
     {
       name: "Alan Turing",
@@ -227,7 +227,7 @@ async function main() {
     console.log("    2. Read the verification mail at http://localhost:8025 (Mailpit)");
     console.log("    3. pnpm bootstrap:superadmin --email <your address>");
     console.log("    4. Enrol in 2FA at /app/security, then open /admin");
-    console.log("    5. Redeem INKLOOMHACKATHON at /app/redeem for 500 credits\n");
+    console.log("    5. Redeem INKLOOMHACKATHON at /app/redeem for $20 in credits\n");
   } finally {
     await pool.end();
   }

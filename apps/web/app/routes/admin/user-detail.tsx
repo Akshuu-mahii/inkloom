@@ -9,6 +9,7 @@ import {
   Stat,
   TextArea,
   formatCredits,
+  formatCreditDelta,
   formatDate,
   formatRelative,
 } from "../../components/ui";
@@ -171,11 +172,7 @@ export default function UserDetail({ loaderData }: Route.ComponentProps) {
           borderBottom: "1px solid var(--color-rule-soft)",
         }}
       >
-        <Stat
-          value={d.credits.balance.toLocaleString("en-GB")}
-          label="Credit balance"
-          tone="loop"
-        />
+        <Stat value={formatCredits(d.credits.balance)} label="Credit balance" tone="loop" />
         <Stat value={d.redemptions.length} label="Codes redeemed" />
         <Stat value={d.sessions.length} label="Active sessions" />
         <Stat value={formatDate(d.user.createdAt)} label="Joined" />
@@ -282,7 +279,7 @@ export default function UserDetail({ loaderData }: Route.ComponentProps) {
                         color: e.amount > 0 ? "var(--color-positive)" : "var(--color-critical)",
                       }}
                     >
-                      {formatCredits(e.amount)}
+                      {formatCreditDelta(e.amount)}
                     </td>
                     <td
                       className="numeric"

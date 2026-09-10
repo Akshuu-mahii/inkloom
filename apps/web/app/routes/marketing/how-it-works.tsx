@@ -95,7 +95,7 @@ export default function HowItWorks() {
               </div>
               <div>
                 <dt>Primitive</dt>
-                <dd>Two circles, radius 18</dd>
+                <dd>Two circles, radius 158</dd>
               </div>
               <div>
                 <dt>Junction</dt>

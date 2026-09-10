@@ -39,13 +39,22 @@
   --color-rule-soft: #e0dacb;
   --color-faint: #877f69;
 
-  /* The loop. A hot vermilion, not a clay terracotta. */
-  --color-loop: #f2521e;
+  /* The loop. A hot vermilion, not a clay terracotta.
+     Sampled from the approved wordmark rather than chosen: the artwork's loop
+     is exactly #ff6124, and one brand orange beats two similar ones. */
+  --color-loop: #ff6124;
   --color-loop-deep: #d8410f;
   /* Hover LIGHTENS rather than darkens, because the label on it is ink.
      Darkening would drop the text contrast below AA. */
-  --color-loop-lift: #ff6a38;
-  --color-loop-wash: #fbe4da;
+  --color-loop-lift: #ff7a45;
+  --color-loop-wash: #ffe6dc;
+  /* Orange as TYPE, on paper.
+     The brand orange is a fill and a stroke colour: against paper it measures
+     2.57:1, which is fine for the mark (aria-hidden, with a text alternative)
+     and nowhere near enough for words. This is the same hue darkened until it
+     reaches 4.6:1 — AA for body text. Anything orange that a person has to
+     READ uses this, never --color-loop. */
+  --color-loop-text: #c23a0c;
 
   /* Status. Kept desaturated so they never compete with the loop. */
   --color-positive: #2f6b46;
@@ -259,7 +268,8 @@ svg {
    fails WCAG AA for normal text; ink on the same colour measures 5.4:1. That
    keeps the exact brand orange the wordmark uses AND passes — the alternative
    was darkening the brand colour, which would have been the wrong thing to
-   compromise. Verified by the axe pass in `accessibility.spec.ts`. */
+   compromise. Now that the orange is sampled from the artwork it measures
+   6.28:1. Verified by the axe pass in `accessibility.spec.ts`. */
 .btn-primary {
   background: var(--color-loop);
   color: var(--color-ink);

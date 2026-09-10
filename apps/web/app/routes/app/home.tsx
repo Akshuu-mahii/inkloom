@@ -9,6 +9,7 @@ import {
   Pill,
   Stat,
   formatCredits,
+  formatCreditDelta,
   formatRelative,
 } from "../../components/ui";
 import { servicesContext } from "../../lib/context";
@@ -78,7 +79,7 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
         }}
       >
         <Stat
-          value={me.credits.balance.toLocaleString("en-GB")}
+          value={formatCredits(me.credits.balance)}
           label="Credits reserved"
           tone="loop"
           hint="Usable when generation opens"
@@ -157,7 +158,7 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
                         color: entry.amount > 0 ? "var(--color-positive)" : "var(--color-ink)",
                       }}
                     >
-                      {formatCredits(entry.amount)}
+                      {formatCreditDelta(entry.amount)}
                     </span>
                   </li>
                 ))}
