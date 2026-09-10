@@ -54,8 +54,16 @@ export default function Contact({ loaderData }: Route.ComponentProps) {
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const [checkStatus, setCheckStatus] = useState<TurnstileStatus>("pending");
-  // Held only while the check is still working — never after it has given up.
-  const awaitingCheck = Boolean(loaderData.turnstileSiteKey) && checkStatus === "pending";
+  /**
+   * The check must have produced a token before this form can be sent.
+   *
+   * Blocked while `pending` AND while `unavailable`: the server refuses a
+   * missing token either way, so a live button would only buy a refusal that
+   * reads as an accusation. The Turnstile component explains the situation and
+   * offers a retry underneath.
+   */
+  const checkBlocked = Boolean(loaderData.turnstileSiteKey) && checkStatus !== "verified";
+  const checkFailed = checkStatus === "unavailable";
 
   if (actionData?.reference) {
     return (
@@ -197,13 +205,15 @@ export default function Contact({ loaderData }: Route.ComponentProps) {
                   <button
                     type="submit"
                     className="btn btn-primary"
-                    disabled={navigation.state === "submitting" || awaitingCheck}
+                    disabled={navigation.state === "submitting" || checkBlocked}
                   >
                     {navigation.state === "submitting"
                       ? "Sending…"
-                      : awaitingCheck
-                        ? "Checking you're human…"
-                        : "Send message"}
+                      : checkFailed
+                        ? "Human check unavailable"
+                        : checkBlocked
+                          ? "Checking you're human…"
+                          : "Send message"}
                   </button>
                 </div>
               </Form>

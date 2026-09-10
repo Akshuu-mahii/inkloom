@@ -13,10 +13,13 @@ import type { EmailTransport, SendEmailInput, SendResult } from "../types";
 
 class Spy implements EmailTransport {
   readonly received: string[] = [];
-  constructor(readonly name: string) {}
+  constructor(
+    readonly name: string,
+    private readonly result: SendResult = { ok: true },
+  ) {}
   async send(input: SendEmailInput): Promise<SendResult> {
     this.received.push(input.to);
-    return { ok: true, providerMessageId: `${this.name}_1` };
+    return { providerMessageId: `${this.name}_1`, ...this.result };
   }
 }
 
@@ -91,6 +94,32 @@ describe("DevelopmentMailRouter", () => {
   it("reports both transports in its name, so email_events records the truth", () => {
     const { router } = build();
     expect(router.name).toBe("resend+mailpit");
+  });
+
+  it("still delivers locally when the provider refuses a real address", async () => {
+    // Exactly Resend's 403 before a domain is verified.
+    const refusal = "You can only send testing emails to your own email address";
+    const real = new Spy("resend", { ok: false, error: refusal });
+    const local = new Spy("mailpit");
+    const router = new DevelopmentMailRouter(real, local);
+
+    const result = await router.send(message("someone@gmail.com"), "Inkloom <x@y.com>");
+
+    // The developer can still read the message and finish the flow...
+    expect(local.received).toEqual(["someone@gmail.com"]);
+    // ...but the send is still recorded as a failure, carrying the real reason.
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain(refusal);
+    expect(result.error).toContain("Mailpit");
+  });
+
+  it("does not fall back for an address the provider never saw", async () => {
+    const real = new Spy("resend");
+    const local = new Spy("mailpit");
+    const router = new DevelopmentMailRouter(real, local);
+    await router.send(message("e2e@example.test"), "Inkloom <x@y.com>");
+    expect(real.received).toEqual([]);
+    expect(local.received).toEqual(["e2e@example.test"]);
   });
 
   it("passes the provider result straight through", async () => {

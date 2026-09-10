@@ -156,8 +156,34 @@ export class DevelopmentMailRouter implements EmailTransport {
   }
 
   async send(input: SendEmailInput, from: string): Promise<SendResult> {
-    const transport = isUndeliverableTestAddress(input.to) ? this.local : this.real;
-    return transport.send(input, from);
+    if (isUndeliverableTestAddress(input.to)) {
+      return this.local.send(input, from);
+    }
+
+    const result = await this.real.send(input, from);
+    if (result.ok) return result;
+
+    /*
+     * The provider refused a real address. In development that is nearly always
+     * a configuration answer rather than a dead address — Resend, for one,
+     * refuses every recipient except the account owner until a domain is
+     * verified, which is the single most likely thing to be wrong on a machine
+     * that has just been wired up.
+     *
+     * Dropping the message there would leave a developer staring at an inbox
+     * that never fills, so the message is also delivered locally and can be
+     * read in Mailpit. The failure is NOT hidden: the real provider's own words
+     * are returned as the error, and `Mailer` writes them to `email_events` and
+     * logs them, so the send is still recorded as failed.
+     */
+    const fallback = await this.local.send(input, from);
+    return {
+      ok: false,
+      providerMessageId: fallback.providerMessageId,
+      error: fallback.ok
+        ? `${result.error} — a copy was delivered to Mailpit so the flow can still be completed locally.`
+        : result.error,
+    };
   }
 }
 

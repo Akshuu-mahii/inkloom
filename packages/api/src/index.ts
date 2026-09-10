@@ -99,6 +99,25 @@ export function buildServices(options: BuildServicesOptions): Services {
     });
 
   const transport = options.transport ?? createTransport(config);
+
+  /*
+   * Resend's shared sender only reaches the account owner.
+   *
+   * Until a domain is verified, Resend refuses every recipient except the
+   * address that owns the account, with a 403. It is the first thing that goes
+   * wrong on a freshly wired-up machine and it is invisible from the outside:
+   * signup succeeds, the page says the mail is on its way, and nothing arrives.
+   * Saying so once at boot is far cheaper than diagnosing it later.
+   */
+  if (config.EMAIL_TRANSPORT === "resend" && config.EMAIL_FROM.includes("resend.dev")) {
+    logger.warn("email_sender_is_resend_shared_domain", {
+      from: config.EMAIL_FROM,
+      consequence:
+        "Resend will refuse every recipient except the address that owns the API key. " +
+        "Verify a domain at resend.com/domains and set EMAIL_FROM to it to reach anyone else.",
+    });
+  }
+
   const mailer = new Mailer(options.db, transport, logger, {
     from: config.EMAIL_FROM,
     replyTo: config.EMAIL_REPLY_TO,

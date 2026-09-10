@@ -41,20 +41,38 @@ const SCRIPT_ID = "cf-turnstile-script";
 const SCRIPT_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
 /**
- * How long to hold the submit button before deciding the check is not coming.
+ * How long one attempt gets before it is abandoned and retried.
  *
- * The widget normally settles in two or three seconds. Ten leaves generous room
- * for a slow connection while staying well inside the time a person will wait
- * before concluding the page is broken.
+ * The widget normally settles in two or three seconds, but the CDN is a third
+ * party and a cold, slow or congested connection can take much longer. This is
+ * a per-attempt budget, not a verdict: expiring it starts a fresh attempt.
  */
-const GIVE_UP_AFTER_MS = 10_000;
+const ATTEMPT_TIMEOUT_MS = 8_000;
 
 /**
- * `pending`  — still working; the form should hold its submit button.
+ * How many times to fetch the script before reporting failure.
+ *
+ * Real evidence for retrying rather than giving up: on a slow connection here,
+ * two submissions eight and four seconds apart were both refused with
+ * `missing-input-response` — an empty token — and the widget then produced a
+ * perfectly good one about forty seconds after load. A single short deadline
+ * turns a slow success into a hard failure.
+ */
+const MAX_ATTEMPTS = 3;
+
+/**
+ * `pending`  — still working, or retrying; the form holds its submit button.
  * `verified` — a token exists; submitting will pass verification.
- * `unavailable` — the check could not run. The form should stop blocking, so
- *   the person gets an honest server-side refusal they can act on rather than
- *   an inert button. It does NOT mean verification was skipped.
+ * `unavailable` — every attempt failed.
+ *
+ * A form must keep its submit button DISABLED for both `pending` and
+ * `unavailable`, and say why. This is a reversal of an earlier decision here,
+ * and the reason is worth recording: releasing the button on `unavailable`
+ * looked kinder, but the server fails closed on a missing token, so every one
+ * of those submissions was refused — with "We couldn't verify that you're
+ * human", which reads as an accusation for something entirely outside the
+ * person's control. A disabled button beside a clear explanation and a retry is
+ * both more honest and less alarming than a live button that cannot work.
  */
 export type TurnstileStatus = "pending" | "verified" | "unavailable";
 
@@ -90,20 +108,32 @@ export function Turnstile({
     notify.current?.(next);
   }, []);
 
+  /** Manual retry, after the automatic ones are spent. */
   const retry = useCallback(() => {
-    // Drop the old script so a transient failure gets a genuinely fresh fetch
-    // rather than the browser's cached failure.
+    // Drop the old script so this gets a genuinely fresh fetch rather than the
+    // browser's cached failure.
     document.getElementById(SCRIPT_ID)?.remove();
     report("pending");
-    setAttempt((n) => n + 1);
+    // Back to zero so the manual retry gets the full run of attempts too.
+    setAttempt(0);
   }, [report]);
 
   useEffect(() => {
     let cancelled = false;
+    let settled = false;
     const script = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null;
 
-    function fail() {
-      if (cancelled) return;
+    /** This attempt did not produce a widget. Try again, or give up. */
+    function attemptFailed() {
+      if (cancelled || settled) return;
+      settled = true;
+      if (attempt + 1 < MAX_ATTEMPTS) {
+        // Drop the script so the next attempt refetches rather than replaying
+        // the browser's cached failure.
+        document.getElementById(SCRIPT_ID)?.remove();
+        setAttempt((n) => n + 1);
+        return;
+      }
       report("unavailable");
     }
 
@@ -111,8 +141,8 @@ export function Turnstile({
       if (cancelled || !container.current || widgetId.current) return;
       if (!window.turnstile) {
         // The script reported success but left nothing behind — what a blocker
-        // that answers with an empty 200 looks like. Waiting longer is futile.
-        fail();
+        // answering with an empty 200 looks like.
+        attemptFailed();
         return;
       }
       try {
@@ -122,29 +152,31 @@ export function Turnstile({
           theme: "light",
           // Managed mode: most people never see a challenge at all.
           appearance: "interaction-only",
-          callback: () => report("verified"),
-          "error-callback": () => fail(),
-          // A token is single-use and short-lived; re-run rather than submit a
-          // stale one. Back to pending, not unavailable — the widget is working.
+          callback: () => {
+            settled = true;
+            report("verified");
+          },
+          "error-callback": () => attemptFailed(),
+          /*
+            A token is single-use and short-lived. Going back to `pending`
+            re-blocks the button, which is right: submitting an expired token
+            fails exactly like submitting none. Turnstile refreshes it on its
+            own, and the callback moves us back to `verified`.
+          */
           "expired-callback": () => report("pending"),
-          "timeout-callback": () => fail(),
+          "timeout-callback": () => attemptFailed(),
         });
       } catch {
-        fail();
+        attemptFailed();
       }
     }
 
-    // The backstop that matters: whatever else happens — a request that hangs
-    // rather than erroring, a callback that never fires, a widget that renders
-    // and then goes quiet — the button is released after this.
-    const giveUpTimer = setTimeout(() => {
-      if (cancelled) return;
-      setStatus((current) => {
-        if (current === "verified") return current;
-        notify.current?.("unavailable");
-        return "unavailable";
-      });
-    }, GIVE_UP_AFTER_MS);
+    /*
+      Per-attempt budget. Expiring it is not a verdict — it starts another
+      attempt, and only the last one reports failure. A slow CDN should cost a
+      few extra seconds, not the ability to sign up.
+    */
+    const attemptTimer = setTimeout(attemptFailed, ATTEMPT_TIMEOUT_MS);
 
     if (window.turnstile) {
       render();
@@ -155,23 +187,24 @@ export function Turnstile({
       el.async = true;
       el.defer = true;
       el.addEventListener("load", render);
-      // The handler whose absence caused the hang: a blocked or unreachable
-      // script fires `error`, never `load`.
-      el.addEventListener("error", fail);
+      // The handler whose absence caused the original hang: a blocked or
+      // unreachable script fires `error`, never `load`.
+      el.addEventListener("error", attemptFailed);
       document.head.appendChild(el);
     } else {
       // A tag from an earlier page. It may still be in flight, or it may have
-      // already finished — in which case neither event will fire again, so the
-      // give-up timer above is what releases the button.
+      // already finished — in which case neither event fires again, and the
+      // attempt timer is what moves things along.
       script.addEventListener("load", render);
-      script.addEventListener("error", fail);
+      script.addEventListener("error", attemptFailed);
     }
 
     return () => {
       cancelled = true;
-      clearTimeout(giveUpTimer);
-      document.getElementById(SCRIPT_ID)?.removeEventListener("load", render);
-      document.getElementById(SCRIPT_ID)?.removeEventListener("error", fail);
+      clearTimeout(attemptTimer);
+      const el = document.getElementById(SCRIPT_ID);
+      el?.removeEventListener("load", render);
+      el?.removeEventListener("error", attemptFailed);
       if (widgetId.current && window.turnstile) {
         try {
           window.turnstile.remove(widgetId.current);
@@ -190,9 +223,9 @@ export function Turnstile({
       {status === "unavailable" && (
         <div role="alert" className="field-hint" style={{ marginTop: "0.5rem" }}>
           <p style={{ margin: 0 }}>
-            The human check didn&rsquo;t load. An ad-blocker or a strict network can stop it. You
-            can still send this — if it is refused, allow <code>challenges.cloudflare.com</code> and
-            try once more.
+            The human check couldn&rsquo;t load, so this form can&rsquo;t be sent yet. It is not
+            something you did. An ad-blocker, a VPN or a strict network can block{" "}
+            <code>challenges.cloudflare.com</code> — allow it, or try a different connection.
           </p>
           <p style={{ margin: "0.375rem 0 0" }}>
             <button

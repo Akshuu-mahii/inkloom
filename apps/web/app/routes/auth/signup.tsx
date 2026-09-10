@@ -91,11 +91,15 @@ export default function Signup({ loaderData }: Route.ComponentProps) {
 
   const submitting = navigation.state === "submitting";
   /**
-   * Only a check that is still working holds the button. Once Turnstile has
-   * given up, blocking further would leave a dead control on the page; the
-   * server still refuses a missing token, so nothing is let through here.
+   * The check must have produced a token before this form can be sent.
+   *
+   * Blocked while `pending` AND while `unavailable`: the server refuses a
+   * missing token either way, so a live button would only buy a refusal that
+   * reads as an accusation. The Turnstile component explains the situation and
+   * offers a retry underneath.
    */
-  const awaitingCheck = Boolean(loaderData.turnstileSiteKey) && checkStatus === "pending";
+  const checkBlocked = Boolean(loaderData.turnstileSiteKey) && checkStatus !== "verified";
+  const checkFailed = checkStatus === "unavailable";
   const fields = actionData?.fields ?? {};
 
   if (!loaderData.signupEnabled) {
@@ -228,13 +232,15 @@ export default function Signup({ loaderData }: Route.ComponentProps) {
           className="btn btn-primary"
           /* Held until Turnstile has produced a token, so nobody submits into a
              guaranteed rejection. */
-          disabled={submitting || awaitingCheck}
+          disabled={submitting || checkBlocked}
         >
           {submitting
             ? "Creating your account…"
-            : awaitingCheck
-              ? "Checking you're human…"
-              : "Create account"}
+            : checkFailed
+              ? "Human check unavailable"
+              : checkBlocked
+                ? "Checking you're human…"
+                : "Create account"}
         </button>
       </Form>
 
