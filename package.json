@@ -33,6 +33,7 @@
     "openapi:emit": "tsx scripts/emit-openapi.ts",
     "secrets:check": "tsx scripts/check-secrets.ts",
     "email:test": "tsx scripts/send-test-email.ts",
+    "mail:relay": "tsx scripts/setup-mail-relay.ts",
     "up": "docker compose up -d --wait",
     "down": "docker compose down",
     "deploy:staging": "pnpm --filter @inkloom/web deploy:staging",

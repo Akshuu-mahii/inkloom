@@ -17,3 +17,7 @@ blob-report/
 openapi.json
 .dev.vars
 .dev.vars.*
+
+# Local mail relay: holds an SMTP password and machine-specific compose bits.
+.mailpit/
+compose.override.yaml

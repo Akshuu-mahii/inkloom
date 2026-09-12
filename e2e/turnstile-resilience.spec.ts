@@ -87,6 +87,50 @@ test.describe("Turnstile is unreachable", () => {
   });
 });
 
+test.describe("the block is lifted", () => {
+  test("the manual retry recovers, and the form becomes usable", async ({ page }) => {
+    /*
+     * The retry button is only worth offering if it actually works. Someone who
+     * reads the message, turns off their ad-blocker and clicks it must end up
+     * with a usable form — otherwise the advice is worse than no advice.
+     */
+    let blocking = true;
+    await page.route("**challenges.cloudflare.com/**", async (route) => {
+      if (blocking) {
+        await route.abort();
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.goto("/auth/signup");
+    await settled(page);
+
+    const gated = page.getByRole("button", { name: /Human check unavailable/ });
+    await expect(gated).toBeVisible({ timeout: 40_000 });
+    await expect(gated).toBeDisabled();
+
+    // The blocker comes off, and the person clicks the product's own retry.
+    blocking = false;
+    await page.getByRole("button", { name: /try the check again/i }).click();
+
+    await expect(page.getByRole("button", { name: /Create account/ })).toBeEnabled({
+      timeout: 30_000,
+    });
+    // A real token, and the warning is gone.
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (document.querySelector('[name="cf-turnstile-response"]') as HTMLInputElement | null)
+              ?.value.length ?? 0,
+        ),
+      )
+      .toBeGreaterThan(0);
+    await expect(page.getByRole("alert").filter({ hasText: /human check couldn/i })).toHaveCount(0);
+  });
+});
+
 test.describe("Turnstile is slow but working", () => {
   test("a slow script is retried, not written off", async ({ page }) => {
     /*

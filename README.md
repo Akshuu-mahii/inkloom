@@ -75,6 +75,7 @@ pnpm codes:create --name "Launch" --credits 20
 pnpm credits:reconcile    # ledger vs. wallet; exit 1 on drift
 pnpm secrets:check        # scan source AND the built client bundle
 pnpm email:test --to you@example.com   # prove mail actually delivers
+pnpm mail:relay           # deliver to REAL inboxes locally, via your own mailbox
 pnpm openapi:emit         # regenerate openapi.json
 ```
 
@@ -158,10 +159,10 @@ mail server. Reproduce with the commands above.
 | Unit                      | 82      | pass     |
 | Integration + concurrency | 40      | pass     |
 | Security                  | 54      | pass     |
-| End-to-end (Playwright)   | 93      | pass     |
-| **Total**                 | **269** | **pass** |
+| End-to-end (Playwright)   | 94      | pass     |
+| **Total**                 | **270** | **pass** |
 
-The end-to-end figure counts **both** Playwright projects — 71 in `chromium` plus
+The end-to-end figure counts **both** Playwright projects — 72 in `chromium` plus
 22 in `mobile`, which re-runs the accessibility and phone-layout journeys on a
 Pixel 7. An earlier revision of this table said 65, having counted `chromium`
 alone; the mobile project was running but going untallied.
