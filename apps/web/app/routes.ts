@@ -50,7 +50,10 @@ export default [
    * Putting it in the layout would load that layout's chrome for a request
    * whose entire job is to answer with a redirect.
    */
-  ...prefix("auth", [route("sign-out", "routes/auth/sign-out.tsx")]),
+  ...prefix("auth", [
+    route("sign-out", "routes/auth/sign-out.tsx"),
+    route("google", "routes/auth/google.tsx"),
+  ]),
 
   // --- Signed-in dashboard ------------------------------------------------
   layout("routes/app/layout.tsx", [

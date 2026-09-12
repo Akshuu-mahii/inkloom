@@ -184,22 +184,19 @@ export default function Login({ loaderData }: Route.ComponentProps) {
             <hr className="rule" style={{ flex: 1 }} />
           </div>
           {/*
-            A plain link, not a form POST.
+            A form post to our own route, not a link at the API.
 
-            The API refuses urlencoded bodies on state-changing requests (that
-            being the shape a cross-origin CSRF form produces), so a native form
-            POST at `/api/auth/*` would be rejected. Starting OAuth with a
-            navigation is also what the flow expects: nothing is mutated until
-            the provider redirects back with a code.
+            Better Auth's social sign-in is a POST that answers with the URL to
+            follow, so the old `<a href="/api/auth/sign-in/social?...">` was not
+            a route at all and returned 404. `/auth/google` does the POST and
+            redirects. Posting also stops a cross-site image or a prefetch from
+            starting the flow.
           */}
-          <a
-            href="/api/auth/sign-in/social?provider=google&callbackURL=/app"
-            className="btn btn-outline"
-            style={{ width: "100%" }}
-            rel="nofollow"
-          >
-            Continue with Google
-          </a>
+          <Form method="post" action="/auth/google">
+            <button type="submit" className="btn btn-outline" style={{ width: "100%" }}>
+              Continue with Google
+            </button>
+          </Form>
         </>
       )}
 
