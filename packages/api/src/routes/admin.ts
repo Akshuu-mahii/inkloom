@@ -34,7 +34,6 @@ import {
   maskCode,
   normalizeCode,
 } from "@inkloom/core/access-codes";
-import { deviceLabel } from "@inkloom/core/auth";
 import { FEATURE_FLAGS, SYSTEM_SETTINGS } from "@inkloom/core/settings";
 import { templates } from "@inkloom/email";
 import type { Env } from "../context";
@@ -324,7 +323,8 @@ adminRoutes.get("/users/:id", requirePermission("users.read"), async (c) => {
     sessions: sessions.map((s) => ({
       id: s.id,
       // Device label only. `s.token` is never selected or serialised.
-      device: deviceLabel(s.userAgent),
+      // Stored pre-labelled by the session-create hook; do not re-parse.
+      device: s.userAgent ?? "Unknown device",
       createdAt: s.createdAt,
       lastActiveAt: s.lastActiveAt,
       expiresAt: s.expiresAt,

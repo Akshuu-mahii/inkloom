@@ -168,6 +168,42 @@ test.describe("Turnstile is slow but working", () => {
   });
 });
 
+test.describe("the widget renders but is slow to answer", () => {
+  test("a rendered widget is not torn down for being slow", async ({ page }) => {
+    /*
+     * The bug this pins: the per-attempt timer used to run until a TOKEN
+     * arrived, which is a much later event than the widget appearing. An
+     * interaction-only widget can take well over the budget to produce one on a
+     * cold load, so a perfectly healthy check was torn down and retried three
+     * times and then reported unavailable — while a refresh, served from cache,
+     * beat the clock and looked fine. "Broken first, fine after refresh" is
+     * exactly what that looks like from the outside.
+     *
+     * Simulated by delaying the challenge fetch that follows the script, so the
+     * widget renders promptly and the token does not.
+     */
+    await page.route("**challenges.cloudflare.com/**", async (route) => {
+      if (route.request().url().includes("api.js")) {
+        await route.continue();
+        return;
+      }
+      // Everything after the script: slower than one attempt budget.
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
+      await route.continue();
+    });
+
+    await page.goto("/auth/forgot-password");
+    await settled(page);
+
+    // It must never reach the failure state while the widget is alive.
+    await expect(page.getByRole("button", { name: /Human check unavailable/ })).toHaveCount(0);
+
+    await expect(page.getByRole("button", { name: /Send reset link/ })).toBeEnabled({
+      timeout: 45_000,
+    });
+  });
+});
+
 test.describe("Turnstile is reachable", () => {
   test("the gate still holds until a token exists", async ({ page }) => {
     let released: (() => void) | undefined;

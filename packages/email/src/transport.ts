@@ -26,6 +26,13 @@ export class MailpitTransport implements EmailTransport {
           Subject: input.subject,
           HTML: input.html,
           Text: input.text,
+          /*
+           * Was missing entirely, so every message sent locally arrived with no
+           * Reply-To. It matters most for the support notification: without it,
+           * replying to a complaint goes to the sending address rather than to
+           * the person who wrote in.
+           */
+          ...(input.replyTo ? { ReplyTo: [{ Email: input.replyTo }] } : {}),
         }),
       });
 

@@ -51,6 +51,15 @@ export const envSchema = z.object({
   EMAIL_FROM: z.string().default("Inkloom <no-reply@mail.inkloom.com>"),
   EMAIL_REPLY_TO: z.string().default("support@inkloom.com"),
   SUPPORT_EMAIL: z.string().default("support@inkloom.com"),
+  /**
+   * Where support submissions are actually delivered.
+   *
+   * Separate from SUPPORT_EMAIL, which is printed on the contact page and in
+   * every email footer. Routing complaints somewhere real should not require
+   * publishing that address to the world, so this defaults to the public one
+   * and can be pointed at a personal inbox without changing what visitors see.
+   */
+  SUPPORT_INBOX: z.string().optional(),
 
   TURNSTILE_SITE_KEY: z.string().default(""),
   TURNSTILE_SECRET_KEY: z.string().default(""),

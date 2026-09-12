@@ -21,7 +21,6 @@ import {
   user as userTable,
   userConsent,
 } from "@inkloom/db";
-import { deviceLabel } from "@inkloom/core/auth";
 import { templates } from "@inkloom/email";
 import type { Env } from "../context";
 import { apiError, ok, paged } from "../lib/response";
@@ -247,7 +246,16 @@ meRoutes.get("/sessions", async (c) => {
       // A coarse device label only. No IP address — not even the hashed one —
       // and no fingerprint: enough for a user to recognise their own devices,
       // not enough to be a tracking surface if the response ever leaked.
-      device: deviceLabel(row.userAgent),
+      /*
+       * The stored value is ALREADY a device label.
+       *
+       * `deviceLabel()` is applied once, in the session-create hook, so the full
+       * User-Agent never reaches storage. Applying it again here re-parsed its
+       * own output: "Chrome on macOS" contains no "mac os" (no space) and no
+       * "macintosh", so it came back as "Chrome on Unknown OS" — which is
+       * exactly what the sessions page showed.
+       */
+      device: row.userAgent ?? "Unknown device",
       createdAt: row.createdAt,
       lastActiveAt: row.lastActiveAt,
       expiresAt: row.expiresAt,
@@ -429,7 +437,8 @@ meRoutes.post(
         createdAt: x.createdAt,
       })),
       sessions: sessions.map((s) => ({
-        device: deviceLabel(s.userAgent),
+        // Already a label; see the note above.
+        device: s.userAgent ?? "Unknown device",
         createdAt: s.createdAt,
         lastActiveAt: s.lastActiveAt,
         // Session tokens and IP hashes are deliberately excluded.

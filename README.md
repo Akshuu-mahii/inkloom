@@ -159,10 +159,10 @@ mail server. Reproduce with the commands above.
 | Unit                      | 82      | pass     |
 | Integration + concurrency | 45      | pass     |
 | Security                  | 54      | pass     |
-| End-to-end (Playwright)   | 96      | pass     |
-| **Total**                 | **277** | **pass** |
+| End-to-end (Playwright)   | 97      | pass     |
+| **Total**                 | **278** | **pass** |
 
-The end-to-end figure counts **both** Playwright projects — 74 in `chromium` plus
+The end-to-end figure counts **both** Playwright projects — 75 in `chromium` plus
 22 in `mobile`, which re-runs the accessibility and phone-layout journeys on a
 Pixel 7. An earlier revision of this table said 65, having counted `chromium`
 alone; the mobile project was running but going untallied.

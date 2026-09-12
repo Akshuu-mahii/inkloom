@@ -172,7 +172,7 @@ export default function Signup({ loaderData }: Route.ComponentProps) {
             /* `new-password` lets a password manager offer to generate one. */
             autoComplete="new-password"
             required
-            minLength={12}
+            minLength={6}
             /**
              * UNCONTROLLED on purpose.
              *

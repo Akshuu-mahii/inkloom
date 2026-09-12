@@ -127,6 +127,7 @@ export function Turnstile({
     function attemptFailed() {
       if (cancelled || settled) return;
       settled = true;
+      clearTimeout(attemptTimer);
       if (attempt + 1 < MAX_ATTEMPTS) {
         // Drop the script so the next attempt refetches rather than replaying
         // the browser's cached failure.
@@ -146,6 +147,22 @@ export function Turnstile({
         return;
       }
       try {
+        /*
+         * Once the widget is up, the attempt has done its job.
+         *
+         * The timer used to run until a TOKEN arrived, which is a different and
+         * much later event: an interaction-only widget can take well over eight
+         * seconds to produce one, especially on a cold load where the challenge
+         * itself has to be fetched. So a perfectly healthy widget was being torn
+         * down and retried three times, and the form then declared the check
+         * unavailable — while a refresh, served from cache, beat the timer and
+         * looked fine. Stopping the clock here is the fix.
+         *
+         * Nothing is left unguarded: Turnstile's own `error-callback` and
+         * `timeout-callback` cover a widget that renders and then fails, which
+         * is what they exist for.
+         */
+        clearTimeout(attemptTimer);
         widgetId.current = window.turnstile.render(container.current, {
           sitekey: siteKey,
           action,
@@ -175,6 +192,11 @@ export function Turnstile({
       Per-attempt budget. Expiring it is not a verdict — it starts another
       attempt, and only the last one reports failure. A slow CDN should cost a
       few extra seconds, not the ability to sign up.
+    */
+    /*
+      Declared here, referenced by the two functions above.
+      Both are function declarations, so they are hoisted, and neither can run
+      before this line: the listeners that call them are attached below it.
     */
     const attemptTimer = setTimeout(attemptFailed, ATTEMPT_TIMEOUT_MS);
 

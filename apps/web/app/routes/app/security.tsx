@@ -176,26 +176,6 @@ export async function action({ request }: Route.ActionArgs) {
     return new Response(null, { status: 204, headers: withCookies(result) });
   }
 
-  if (intent === "email") {
-    const result = await call("/me/change-email", {
-      method: "POST",
-      request,
-      body: {
-        newEmail: String(form.get("newEmail") ?? ""),
-        currentPassword: String(form.get("currentPassword") ?? ""),
-      },
-    });
-    return result.error
-      ? {
-          intent,
-          error: result.error.message,
-          fields: fieldErrors(result.error),
-          ok: false,
-          setup: null,
-        }
-      : { intent, error: null, fields: {} as Record<string, string>, ok: true, setup: null };
-  }
-
   return {
     intent,
     error: "Unknown action.",
@@ -499,70 +479,6 @@ export default function Security() {
                 <div>
                   <button type="submit" className="btn btn-ink" disabled={busy}>
                     Set password
-                  </button>
-                </div>
-              </Form>
-            </>
-          )}
-        </section>
-
-        {/* --- Email ------------------------------------------------------- */}
-        <section style={{ paddingTop: "2rem", borderTop: "1px solid var(--color-rule-soft)" }}>
-          <h2 style={{ fontSize: "var(--text-h4)" }}>Change your email address</h2>
-
-          {!me.hasPassword ? (
-            <p style={{ marginTop: "0.5rem", color: "var(--color-muted)" }}>
-              Changing your address needs a password to confirm it is you, and this account does not
-              have one yet. <a href="#password">Set a password</a> first.
-            </p>
-          ) : (
-            <>
-              {forIntent("email")?.ok && (
-                <div style={{ marginTop: "1rem" }}>
-                  <Notice tone="positive" title="Check your current inbox">
-                    We sent a confirmation link to {me.email}. The change takes effect once you
-                    click it.
-                  </Notice>
-                </div>
-              )}
-              {forIntent("email")?.error && (
-                <div style={{ marginTop: "1rem" }}>
-                  <Notice tone="critical">{forIntent("email")?.error}</Notice>
-                </div>
-              )}
-
-              <Form
-                method="post"
-                style={{ display: "grid", gap: "1.125rem", marginTop: "1.25rem" }}
-              >
-                <input type="hidden" name="intent" value="email" />
-                <Field
-                  label="New email address"
-                  name="newEmail"
-                  type="email"
-                  /*
-                    Not `autoComplete="email"`. That told the browser this field
-                    wanted the saved address, so it filled in the address you
-                    already use — into the box asking which OTHER address you
-                    want. Every visit arrived pre-filled with the wrong answer.
-                  */
-                  autoComplete="off"
-                  required
-                />
-                <Field
-                  label="Confirm your password"
-                  name="currentPassword"
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                />
-                <p className="field-hint">
-                  We send the confirmation to your CURRENT address, so a change cannot happen
-                  without access to the inbox you already use.
-                </p>
-                <div>
-                  <button type="submit" className="btn btn-ink" disabled={busy}>
-                    Send confirmation
                   </button>
                 </div>
               </Form>

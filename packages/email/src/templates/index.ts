@@ -352,6 +352,66 @@ export function supportReceived(
   });
 }
 
+/**
+ * The complaint itself, to whoever answers support.
+ *
+ * The acknowledgement above goes to the person who wrote in. This one is the
+ * other half, and it was simply missing: a support form that only ever thanks
+ * the sender and tells nobody is a form that loses every message.
+ *
+ * `replyTo` is set to the sender at the call site, so answering is one click
+ * and the reply lands in their inbox rather than the support alias.
+ */
+export function supportSubmitted(
+  ctx: TemplateContext,
+  data: {
+    reference: string;
+    subject: string;
+    category: string;
+    message: string;
+    fromName?: string | null;
+    fromEmail: string;
+    accountUrl?: string | null;
+  },
+): RenderedEmail {
+  return build(ctx, {
+    title: `Support: ${data.subject}`,
+    preview: `${data.reference} — ${data.category}`,
+    paragraphs: [
+      `<strong>${escapeHtml(data.reference)}</strong> · ${escapeHtml(data.category)}`,
+      `From ${escapeHtml(data.fromName ?? "someone")} &lt;${escapeHtml(data.fromEmail)}&gt;`,
+      // The message verbatim, escaped, with line breaks kept so a paragraph
+      // written as a paragraph still reads as one.
+      escapeHtml(data.message).replace(/\n/g, "<br>"),
+    ],
+    cta: data.accountUrl ? { label: "Open in admin", url: data.accountUrl } : undefined,
+  });
+}
+
+/**
+ * A password added to an account that never had one.
+ *
+ * Distinct from `password_changed` on purpose. Someone who signed up with
+ * Google and then set a password has not changed anything — telling them their
+ * password "was changed" reads as a warning about something they did not do,
+ * which is the opposite of reassuring.
+ */
+export function passwordAdded(
+  ctx: TemplateContext,
+  data: { name?: string | null; when: string },
+): RenderedEmail {
+  return build(ctx, {
+    title: "A password was added to your account",
+    preview: "You can now sign in with a password as well as with Google.",
+    paragraphs: [
+      greet(data.name),
+      `A password was set on your Inkloom account for the first time on ${escapeHtml(data.when)}. You can now sign in either with Google or with your email address and this password.`,
+      `If this was not you, change it immediately and tell us at <a href="mailto:${escapeHtml(ctx.supportEmail)}">${escapeHtml(ctx.supportEmail)}</a>.`,
+    ],
+    cta: { label: "Review your security settings", url: `${ctx.appUrl}/app/security` },
+  });
+}
+
 export const TEMPLATE_IDS = [
   "verify_email",
   "welcome",
@@ -367,6 +427,8 @@ export const TEMPLATE_IDS = [
   "data_export_ready",
   "account_deleted",
   "support_received",
+  "support_submitted",
+  "password_added",
 ] as const;
 
 export type TemplateId = (typeof TEMPLATE_IDS)[number];

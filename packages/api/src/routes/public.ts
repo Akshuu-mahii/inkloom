@@ -90,6 +90,32 @@ supportRoutes.post(
       ),
     });
 
+    /*
+     * And the half that was missing: tell whoever answers support.
+     *
+     * Only the acknowledgement above existed, so every message thanked the
+     * sender and reached nobody. `replyTo` is the sender, so answering goes
+     * straight back to them rather than to the support alias.
+     */
+    await mailer.send({
+      to: config.SUPPORT_INBOX ?? config.SUPPORT_EMAIL,
+      template: "support_submitted",
+      replyTo: principal?.email ?? input.email,
+      force: true,
+      rendered: templates.supportSubmitted(
+        { appUrl: config.APP_URL, supportEmail: config.SUPPORT_EMAIL },
+        {
+          reference,
+          subject: input.subject,
+          category: input.category,
+          message: input.message,
+          fromName: input.name ?? principal?.name,
+          fromEmail: principal?.email ?? input.email,
+          accountUrl: principal ? `${config.APP_URL}/admin/users/${principal.userId}` : null,
+        },
+      ),
+    });
+
     await audit.recordStandalone({
       action: "support.submit",
       actorType: principal ? "user" : "system",

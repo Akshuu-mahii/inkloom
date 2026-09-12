@@ -53,6 +53,11 @@ export async function action({ request }: Route.ActionArgs) {
       // call has no browser Origin header, so it supplies its own.
       origin,
       ...(request.headers.get("cookie") ? { cookie: request.headers.get("cookie")! } : {}),
+      // So the session this eventually creates records a real device, not
+      // "Unknown browser on Unknown OS".
+      ...(request.headers.get("user-agent")
+        ? { "user-agent": request.headers.get("user-agent")! }
+        : {}),
     },
     body: JSON.stringify({ provider: "google", callbackURL }),
   }).catch(() => null);

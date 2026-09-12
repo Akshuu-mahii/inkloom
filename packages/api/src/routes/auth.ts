@@ -691,15 +691,19 @@ authRoutes.post("/set-password", requireAuth, validateBody(setPasswordSchema), a
     });
   }
 
-  // Same treatment as a password change: the account holder is told, because
-  // a password appearing on an account is exactly as significant as one
-  // changing.
+  /*
+   * Told, but told accurately.
+   *
+   * This used to send the password_changed notice, which warns that a password
+   * "was changed" — alarming and wrong for someone who signed up with Google
+   * and has just set their first one. Nothing changed; something was added.
+   */
   await mailer.send({
     to: principal.email,
-    template: "password_changed",
+    template: "password_added",
     userId: principal.userId,
     force: true,
-    rendered: templates.passwordChanged(
+    rendered: templates.passwordAdded(
       { appUrl: config.APP_URL, supportEmail: config.SUPPORT_EMAIL },
       { name: principal.name, when: new Date().toUTCString() },
     ),

@@ -88,7 +88,7 @@ export default function ResetPassword() {
           type="password"
           autoComplete="new-password"
           required
-          minLength={12}
+          minLength={6}
           // Uncontrolled: see the note in signup.tsx — a controlled value is
           // wiped by hydration if the user types before JavaScript loads.
           hint="At least 6 characters, including a letter, a number and a special character."

@@ -537,9 +537,25 @@ describe("password reset", () => {
 
 // ===========================================================================
 describe("sessions", () => {
-  it("lists sessions without exposing tokens or IP addresses", async () => {
+  it("shows a coarse device label, derived once and never re-parsed", async () => {
+    /*
+     * The label is computed in the session-create hook so the full User-Agent
+     * never reaches storage, and the read path must use it AS IS. It used to
+     * run `deviceLabel` again over its own output: "Chrome on macOS" contains
+     * no "mac os" and no "macintosh", so it came back "Chrome on Unknown OS" —
+     * which is what the sessions page displayed. A real User-Agent here is what
+     * makes that visible; without one the label is "Unknown device" either way.
+     */
     await signupAndVerify();
-    const session = await login();
+    const session = await app.json<unknown>("/v1/auth/login", {
+      method: "POST",
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+          "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+      },
+      body: JSON.stringify({ email: VALID.email, password: VALID.password }),
+    });
 
     const result = await app.json<{
       sessions: Array<{ id: string; device: string; current: boolean }>;
@@ -547,12 +563,14 @@ describe("sessions", () => {
 
     expect(result.status).toBe(200);
     expect(result.data!.sessions.length).toBeGreaterThanOrEqual(1);
+    expect(result.data!.sessions.map((s) => s.device)).toContain("Chrome on macOS");
 
+    // And nothing identifying beyond that.
     const serialised = JSON.stringify(result.data);
-    // A coarse device label, and nothing else identifying.
-    expect(result.data!.sessions[0]!.device).toMatch(/on/);
     expect(serialised).not.toMatch(/"token"/);
     expect(serialised).not.toMatch(/ipAddress|ip_hash|\d+\.\d+\.\d+\.\d+/);
+    // The raw User-Agent itself must never appear.
+    expect(serialised).not.toMatch(/AppleWebKit|Mozilla/);
   });
 
   it("revokes a single session and immediately rejects it", async () => {
@@ -708,6 +726,18 @@ describe("an account with no password", () => {
     const me = await app.json<{ hasPassword: boolean }>("/v1/me", { cookies: session.cookies });
     expect(me.data?.hasPassword).toBe(true);
     expect((await login(VALID.email, "gK7#pw")).status).toBe(200);
+
+    /*
+     * And the notice says what happened.
+     *
+     * This used to send `password_changed`, which warns that a password "was
+     * changed" — alarming and wrong for someone who signed up with Google and
+     * has just set their first one. Nothing changed; something was added.
+     */
+    const notice = app.mail.lastTo(VALID.email);
+    expect(notice?.template).toBe("password_added");
+    expect(notice?.subject).toMatch(/added/i);
+    expect(notice?.subject).not.toMatch(/changed/i);
   });
 
   it("refuses to overwrite a password that already exists", async () => {

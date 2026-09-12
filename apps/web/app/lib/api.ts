@@ -78,6 +78,18 @@ export async function call<T>(path: string, options: CallOptions = {}): Promise<
     // call has no browser Origin header, so it supplies its own.
     headers.set("origin", origin);
 
+    /*
+     * Forward the browser's User-Agent.
+     *
+     * Sign-in happens through a server action, so without this the API only
+     * ever saw the Worker's own fetch — and every session was recorded as
+     * "Unknown browser on Unknown OS", which is exactly what the sessions page
+     * is for. The header is reduced to a coarse device label before storage;
+     * the full string is never written.
+     */
+    const userAgent = request.headers.get("user-agent");
+    if (userAgent) headers.set("user-agent", userAgent);
+
     // Propagate the request id so a page render and its API calls share one
     // correlation id in the logs.
     const requestId = request.headers.get("x-request-id");

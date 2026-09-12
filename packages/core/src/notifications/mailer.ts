@@ -28,6 +28,8 @@ const TEMPLATE_PREFERENCE: Record<string, keyof PreferenceFlags | null> = {
   account_deleted: null,
   data_export_ready: null,
   support_received: null,
+  support_submitted: null,
+  password_added: null,
   // These respect user preference.
   welcome: "productUpdatesEmail",
   early_access_approved: "productUpdatesEmail",
@@ -58,6 +60,13 @@ export class Mailer {
     requestId?: string;
     /** Skip the preference check. Used for security mail. */
     force?: boolean;
+    /**
+     * Override the default Reply-To for this one message.
+     *
+     * Used when the recipient is the support inbox: a reply should reach the
+     * person who wrote in, not bounce back to the support alias.
+     */
+    replyTo?: string;
   }): Promise<{ sent: boolean; reason?: string }> {
     const normalizedTo = params.to.trim().toLowerCase();
 
@@ -90,7 +99,7 @@ export class Mailer {
         subject: params.rendered.subject,
         html: params.rendered.html,
         text: params.rendered.text,
-        replyTo: this.options.replyTo,
+        replyTo: params.replyTo ?? this.options.replyTo,
         requestId: params.requestId,
       },
       this.options.from,
