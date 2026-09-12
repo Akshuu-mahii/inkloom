@@ -375,38 +375,19 @@ export function createAuth(deps: AuthDeps) {
     },
 
     user: {
-      changeEmail: {
-        enabled: true,
-        sendChangeEmailVerification: async ({
-          user,
-          newEmail,
-          url,
-        }: {
-          user: { id: string; email: string; name: string };
-          newEmail: string;
-          url: string;
-        }) => {
-          // Sent to the CURRENT address: the owner of the account approves the
-          // move, so a hijacked session cannot silently redirect the account.
-          await mailer.send({
-            to: user.email,
-            template: "verify_email",
-            userId: user.id,
-            force: true,
-            rendered: templates.verifyEmail(emailContext, {
-              name: user.name,
-              url,
-              expiresInMinutes: 60,
-            }),
-          });
-          void newEmail;
-        },
-      },
-      deleteUser: {
-        // Deletion runs through Inkloom's own endpoint, which anonymises rather
-        // than dropping rows and preserves the accounting record.
-        enabled: false,
-      },
+      /*
+       * Both self-service account changes are switched off at the library.
+       *
+       * Turning them off HERE is the control, not removing Inkloom's own
+       * wrappers: Better Auth mounts its own routes under /api/auth, so an
+       * endpoint deleted from `me.ts` while the capability stayed enabled
+       * remained reachable at /api/auth/change-email — and that route takes only
+       * the session, so it also skipped the password re-authentication the
+       * wrapper insisted on. Deleting the wrapper alone made the feature less
+       * safe rather than absent.
+       */
+      changeEmail: { enabled: false },
+      deleteUser: { enabled: false },
     },
 
     databaseHooks: {

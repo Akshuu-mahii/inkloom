@@ -188,19 +188,6 @@ export const updateMeSchema = z
   // At least one field, so an empty PATCH is a clear client error.
   .refine((v) => Object.values(v).some((x) => x !== undefined), "Nothing to update.");
 
-export const changeEmailSchema = z.object({
-  newEmail: emailSchema,
-  currentPassword: z.string().min(1).max(200),
-});
-
-export const deleteAccountSchema = z.object({
-  currentPassword: z.string().min(1).max(200),
-  /** Typed confirmation, so a mis-click cannot destroy an account. */
-  confirmation: z.literal("DELETE MY ACCOUNT", {
-    message: 'Type "DELETE MY ACCOUNT" exactly to confirm.',
-  }),
-});
-
 export const notificationPreferencesSchema = z.object({
   productUpdatesEmail: z.boolean().optional(),
   marketingEmail: z.boolean().optional(),
@@ -261,7 +248,6 @@ export const ANALYTICS_EVENTS = [
   "profile_completed",
   "support_submitted",
   "account_export_requested",
-  "account_deleted",
 ] as const;
 
 export const analyticsEventSchema = z.object({

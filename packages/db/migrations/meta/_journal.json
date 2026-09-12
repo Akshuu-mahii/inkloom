@@ -43,6 +43,13 @@
       "when": 1789210000000,
       "tag": "0005_two_factor_security_events",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789430000000,
+      "tag": "0006_drop_email_change_and_deletion_events",
+      "breakpoints": true
     }
   ]
 }

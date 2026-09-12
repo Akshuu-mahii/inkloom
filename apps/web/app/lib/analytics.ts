@@ -36,7 +36,6 @@ export const ANALYTICS_EVENTS = [
   "profile_completed",
   "support_submitted",
   "account_export_requested",
-  "account_deleted",
 ] as const;
 
 export type AnalyticsEvent = (typeof ANALYTICS_EVENTS)[number];

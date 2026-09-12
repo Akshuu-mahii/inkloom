@@ -339,16 +339,6 @@ export function buildOpenApiDocument(origin = "https://inkloom.com") {
           body: schemas.updateMeSchema,
           responses: { "200": { description: "Saved" } },
         }),
-        delete: operation({
-          summary: "Delete your account",
-          description:
-            "Requires the current password and the exact phrase `DELETE MY ACCOUNT`.\n\n" +
-            "Anonymises the account rather than dropping rows: personal data is removed, every session ends, pending email tokens are cancelled, and the credit ledger is preserved in an anonymised form because it is an accounting record.",
-          tag: "User",
-          security: true,
-          body: schemas.deleteAccountSchema,
-          responses: { "200": { description: "Account deleted" } },
-        }),
       },
       "/me/export": {
         post: operation({

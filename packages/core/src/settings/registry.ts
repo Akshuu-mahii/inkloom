@@ -59,26 +59,6 @@ export const FEATURE_FLAGS = {
     default: false,
     highRisk: false,
   },
-  /**
-   * Self-service account deletion.
-   *
-   * Off by default, which removes the control from the UI AND makes the
-   * endpoint refuse — hiding the button alone would leave the capability a
-   * hand-written request away, and this file's whole point is that the server
-   * decides.
-   *
-   * It is a flag rather than deleted code because the right to erasure does
-   * not disappear with the button. `DELETE /me` is the only path that
-   * anonymises an account; there is no admin equivalent. Keeping it one switch
-   * away means a deletion request can still be honoured on request instead of
-   * needing a deploy.
-   */
-  account_deletion_enabled: {
-    key: "account_deletion_enabled",
-    description: "Let people delete their own account from the dashboard",
-    default: false,
-    highRisk: true,
-  },
   support_form_enabled: {
     key: "support_form_enabled",
     description: "Accept new support submissions",

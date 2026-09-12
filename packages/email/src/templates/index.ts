@@ -150,27 +150,7 @@ export function passwordChanged(
 }
 
 // ---------------------------------------------------------------------------
-// 5. Email changed
-// ---------------------------------------------------------------------------
-export function emailChanged(
-  ctx: TemplateContext,
-  data: { name?: string | null; newEmail: string; when: string },
-): RenderedEmail {
-  return build(ctx, {
-    title: "Your Inkloom email address was changed",
-    preview: "Confirming a change to your account.",
-    paragraphs: [
-      greet(data.name),
-      `The email address on your Inkloom account was changed to <strong>${escapeHtml(data.newEmail)}</strong> on ${escapeHtml(data.when)}.`,
-      "This notice was sent to your previous address so you'd know either way.",
-      "<strong>If this wasn't you</strong>, contact us straight away.",
-    ],
-    cta: { label: "Contact support", url: `${ctx.appUrl}/contact` },
-  });
-}
-
-// ---------------------------------------------------------------------------
-// 6. New or suspicious login
+// 5. New or suspicious login
 // ---------------------------------------------------------------------------
 export function newLogin(
   ctx: TemplateContext,
@@ -194,7 +174,7 @@ export function newLogin(
 }
 
 // ---------------------------------------------------------------------------
-// 7. Early-access approval
+// 6. Early-access approval
 // ---------------------------------------------------------------------------
 export function earlyAccessApproved(
   ctx: TemplateContext,
@@ -214,7 +194,7 @@ export function earlyAccessApproved(
 }
 
 // ---------------------------------------------------------------------------
-// 8. Access code redeemed
+// 7. Access code redeemed
 // ---------------------------------------------------------------------------
 export function codeRedeemed(
   ctx: TemplateContext,
@@ -234,7 +214,7 @@ export function codeRedeemed(
 }
 
 // ---------------------------------------------------------------------------
-// 9. Credits granted
+// 8. Credits granted
 // ---------------------------------------------------------------------------
 export function creditsGranted(
   ctx: TemplateContext,
@@ -254,7 +234,7 @@ export function creditsGranted(
 }
 
 // ---------------------------------------------------------------------------
-// 10. Account suspended
+// 9. Account suspended
 // ---------------------------------------------------------------------------
 export function accountSuspended(
   ctx: TemplateContext,
@@ -276,7 +256,7 @@ export function accountSuspended(
 }
 
 // ---------------------------------------------------------------------------
-// 11. Account restored
+// 10. Account restored
 // ---------------------------------------------------------------------------
 export function accountRestored(
   ctx: TemplateContext,
@@ -295,7 +275,7 @@ export function accountRestored(
 }
 
 // ---------------------------------------------------------------------------
-// 12. Data export ready
+// 11. Data export ready
 // ---------------------------------------------------------------------------
 export function dataExportReady(
   ctx: TemplateContext,
@@ -314,27 +294,7 @@ export function dataExportReady(
 }
 
 // ---------------------------------------------------------------------------
-// 13. Account deletion confirmation
-// ---------------------------------------------------------------------------
-export function accountDeleted(
-  ctx: TemplateContext,
-  data: { name?: string | null },
-): RenderedEmail {
-  return build(ctx, {
-    title: "Your Inkloom account has been deleted",
-    preview: "Confirming your account closure.",
-    paragraphs: [
-      greet(data.name),
-      "Your Inkloom account has been deleted, every session has been signed out, and your personal details have been removed.",
-      "We keep a minimal anonymised accounting record of credit grants, with no personal information attached, because we're required to. It cannot be linked back to you.",
-      "If you didn't ask for this, contact us immediately.",
-    ],
-    cta: { label: "Contact support", url: `${ctx.appUrl}/contact` },
-  });
-}
-
-// ---------------------------------------------------------------------------
-// 14. Support request received
+// 12. Support request received
 // ---------------------------------------------------------------------------
 export function supportReceived(
   ctx: TemplateContext,
@@ -417,7 +377,6 @@ export const TEMPLATE_IDS = [
   "welcome",
   "password_reset",
   "password_changed",
-  "email_changed",
   "new_login",
   "early_access_approved",
   "code_redeemed",
@@ -425,7 +384,6 @@ export const TEMPLATE_IDS = [
   "account_suspended",
   "account_restored",
   "data_export_ready",
-  "account_deleted",
   "support_received",
   "support_submitted",
   "password_added",
