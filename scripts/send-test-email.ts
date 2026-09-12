@@ -21,7 +21,9 @@ import {
   templates,
   type EmailTransport,
 } from "@inkloom/email";
-import { optional, required } from "./_env";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { optional, repoRoot, required } from "./_env";
 
 const TEMPLATES = {
   verify: (ctx: { appUrl: string; supportEmail: string }) =>
@@ -136,13 +138,26 @@ async function main() {
   console.log(`  Sent in ${elapsed}ms.`);
   if (result.providerMessageId) console.log(`  Provider message id: ${result.providerMessageId}`);
   console.log("");
-  console.log(
-    kind === "mailpit"
-      ? "  Delivered to Mailpit only. Open http://localhost:8025 — it does NOT reach a real inbox."
-      : kind === "console"
-        ? "  The console transport records messages in memory and sends nothing."
-        : "  Delivered to the provider. Check the real inbox, including spam.",
-  );
+  if (kind === "console") {
+    console.log("  The console transport records messages in memory and sends nothing.");
+  } else if (kind === "mailpit") {
+    /*
+     * Mailpit alone goes nowhere; Mailpit WITH a relay goes to a real inbox.
+     * Saying the wrong one of those is how someone concludes mail is broken
+     * when it worked, or waits for a message that was never going to arrive —
+     * so the answer is read off the relay config rather than assumed.
+     */
+    const relaying = existsSync(path.join(repoRoot, ".mailpit", "relay.yaml"));
+    console.log(
+      relaying
+        ? "  Relayed onward to a real inbox, and copied into http://localhost:8025.\n" +
+            "  Reserved test domains are never relayed — see `pnpm mail:relay`."
+        : "  Delivered to Mailpit only. Open http://localhost:8025 — it does NOT reach a real inbox.\n" +
+            "  To reach real inboxes from local development, run `pnpm mail:relay`.",
+    );
+  } else {
+    console.log("  Delivered to the provider. Check the real inbox, including spam.");
+  }
   console.log("");
 }
 
