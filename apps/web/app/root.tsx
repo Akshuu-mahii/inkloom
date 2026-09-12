@@ -9,6 +9,7 @@ import {
   useRouteError,
 } from "react-router";
 import type { Route } from "./+types/root";
+import { CookieNotice } from "./components/cookie-notice";
 import { Logo } from "./components/logo";
 import "./app.css";
 
@@ -55,6 +56,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           Skip to content
         </a>
         {children}
+        {/* Site-wide, so the choice is asked once and applies everywhere. */}
+        <CookieNotice />
         <ScrollRestoration />
         <Scripts />
       </body>

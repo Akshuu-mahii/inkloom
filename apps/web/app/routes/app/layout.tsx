@@ -53,7 +53,15 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
     <div className="app-shell">
       <header className="app-bar">
         <div className="app-bar-inner">
-          <Link to="/app" aria-label="Inkloom dashboard" style={{ textDecoration: "none" }}>
+          {/*
+            The mark goes HOME, not to the dashboard.
+            
+            It used to link to /app — the page you are already on — so from
+            inside the dashboard there was no way back to the public site at
+            all. A wordmark is the one control everyone expects to return them
+            to the front door.
+          */}
+          <Link to="/" aria-label="Inkloom home" style={{ textDecoration: "none" }}>
             <Logo size={20} />
           </Link>
 
@@ -106,8 +114,33 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
         </main>
       </div>
 
+      {/*
+        A quiet footer, mostly so there is a second way back to the public
+        site. The dashboard had none: no footer, and a wordmark that linked to
+        the page you were already on.
+      */}
+      <footer className="app-foot">
+        <Link to="/">Back to inkloom.com</Link>
+        <span aria-hidden="true">·</span>
+        <Link to="/terms">Terms</Link>
+        <span aria-hidden="true">·</span>
+        <Link to="/privacy">Privacy</Link>
+        <span aria-hidden="true">·</span>
+        <Link to="/cookies">Cookies</Link>
+        <span aria-hidden="true">·</span>
+        <Link to="/contact">Support</Link>
+      </footer>
+
       <style>{`
         .app-shell { min-height: 100dvh; display: flex; flex-direction: column; background: var(--color-paper); }
+        .app-foot {
+          border-top: 1px solid var(--color-rule); margin-top: auto;
+          max-width: 78rem; width: 100%; margin-inline: auto;
+          padding: 1.25rem 1.5rem; display: flex; flex-wrap: wrap; gap: 0.5rem 0.75rem;
+          font-size: var(--text-fine); color: var(--color-muted);
+        }
+        .app-foot a { color: var(--color-muted); }
+        .app-foot a:hover { color: var(--color-ink); }
         .app-bar { border-bottom: 1px solid var(--color-rule); background: var(--color-panel); }
         .app-bar-inner {
           max-width: 78rem; margin-inline: auto; padding: 0 1.5rem;

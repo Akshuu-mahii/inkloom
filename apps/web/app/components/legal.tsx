@@ -114,7 +114,15 @@ export function LegalDocument({
           font-size: var(--text-h4); display: flex; gap: 0.75rem; align-items: baseline;
           margin-bottom: 0.875rem;
         }
-        .legal-index { color: var(--color-faint); font-size: var(--text-base); }
+        /*
+          --color-muted, not --color-faint.
+
+          --color-faint measures 3.4:1 and is documented as being for LARGE
+          numerals, where 3:1 is the AA threshold. This one is set at body size,
+          where the threshold is 4.5:1 — so the token was being used outside the
+          size it was designed for, and axe was right to flag it.
+        */
+        .legal-index { color: var(--color-muted); font-size: var(--text-base); }
         .legal-body p { margin-bottom: 0.875rem; color: var(--color-ink-soft); max-width: none; }
         .legal-body ul { margin: 0 0 0.875rem; padding-left: 1.25rem; color: var(--color-ink-soft); }
         .legal-body li { margin-bottom: 0.375rem; }

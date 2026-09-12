@@ -1,6 +1,8 @@
-import { Link, NavLink, Outlet, useLocation } from "react-router";
+import { Link, NavLink, Outlet, useLoaderData, useLocation } from "react-router";
 import { useEffect, useState } from "react";
+import type { Route } from "./+types/layout";
 import { Logo } from "../../components/logo";
+import { call, type Me } from "../../lib/api";
 
 /**
  * Marketing chrome.
@@ -12,7 +14,28 @@ import { Logo } from "../../components/logo";
  * It is also imported dynamically, so the library is not in the bundle that a
  * signed-in user downloads.
  */
+/**
+ * Is anyone signed in?
+ *
+ * The marketing pages had no loader at all, so the header always offered
+ * "Sign in" and "Join early access" — to people who were already signed in and
+ * one click from their dashboard. The session cookie is Path=/ and has been
+ * sent with these requests all along; nothing was reading it.
+ *
+ * Deliberately tolerant: an anonymous visitor gets a 401 here, which is the
+ * normal case and not an error. The marketing site must render for someone with
+ * no account at all, so a failure to resolve a session is simply "signed out".
+ */
+export async function loader({ request }: Route.LoaderArgs) {
+  const result = await call<Me>("/me", { request });
+  return {
+    signedIn: Boolean(result.data?.email),
+    displayName: result.data?.profile.displayName ?? result.data?.name ?? null,
+  };
+}
+
 export default function MarketingLayout() {
+  const { signedIn, displayName } = useLoaderData<typeof loader>();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -55,7 +78,12 @@ export default function MarketingLayout() {
 
   return (
     <>
-      <SiteHeader menuOpen={menuOpen} onToggleMenu={() => setMenuOpen((open) => !open)} />
+      <SiteHeader
+        menuOpen={menuOpen}
+        onToggleMenu={() => setMenuOpen((open) => !open)}
+        signedIn={signedIn}
+        displayName={displayName}
+      />
       <main id="main">
         <Outlet />
       </main>
@@ -71,7 +99,17 @@ const NAV = [
   { to: "/faq", label: "FAQ" },
 ];
 
-function SiteHeader({ menuOpen, onToggleMenu }: { menuOpen: boolean; onToggleMenu: () => void }) {
+function SiteHeader({
+  menuOpen,
+  onToggleMenu,
+  signedIn,
+  displayName,
+}: {
+  menuOpen: boolean;
+  onToggleMenu: () => void;
+  signedIn: boolean;
+  displayName: string | null;
+}) {
   return (
     <header
       style={{
@@ -117,24 +155,36 @@ function SiteHeader({ menuOpen, onToggleMenu }: { menuOpen: boolean; onToggleMen
         </nav>
 
         <div className="site-actions">
-          <Link
-            to="/auth/login"
-            style={{
-              fontSize: "var(--text-fine)",
-              fontWeight: 500,
-              color: "var(--color-ink)",
-              textDecoration: "none",
-            }}
-          >
-            Sign in
-          </Link>
-          <Link
-            to="/auth/signup"
-            className="btn btn-ink"
-            style={{ minHeight: "2.25rem", padding: "0.375rem 1rem" }}
-          >
-            Join early access
-          </Link>
+          {signedIn ? (
+            <Link
+              to="/app"
+              className="btn btn-ink"
+              style={{ minHeight: "2.25rem", padding: "0.375rem 1rem" }}
+            >
+              {displayName ? `Go to dashboard` : "Dashboard"}
+            </Link>
+          ) : (
+            <>
+              <Link
+                to="/auth/login"
+                style={{
+                  fontSize: "var(--text-fine)",
+                  fontWeight: 500,
+                  color: "var(--color-ink)",
+                  textDecoration: "none",
+                }}
+              >
+                Sign in
+              </Link>
+              <Link
+                to="/auth/signup"
+                className="btn btn-ink"
+                style={{ minHeight: "2.25rem", padding: "0.375rem 1rem" }}
+              >
+                Join early access
+              </Link>
+            </>
+          )}
         </div>
 
         <button
@@ -179,12 +229,20 @@ function SiteHeader({ menuOpen, onToggleMenu }: { menuOpen: boolean; onToggleMen
             </Link>
           ))}
           <div style={{ display: "flex", gap: "0.75rem", marginTop: "1rem" }}>
-            <Link to="/auth/login" className="btn btn-quiet" style={{ flex: 1 }}>
-              Sign in
-            </Link>
-            <Link to="/auth/signup" className="btn btn-ink" style={{ flex: 1 }}>
-              Join early access
-            </Link>
+            {signedIn ? (
+              <Link to="/app" className="btn btn-ink" style={{ flex: 1 }}>
+                Go to dashboard
+              </Link>
+            ) : (
+              <>
+                <Link to="/auth/login" className="btn btn-quiet" style={{ flex: 1 }}>
+                  Sign in
+                </Link>
+                <Link to="/auth/signup" className="btn btn-ink" style={{ flex: 1 }}>
+                  Join early access
+                </Link>
+              </>
+            )}
           </div>
         </nav>
       )}

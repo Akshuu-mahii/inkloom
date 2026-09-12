@@ -20,6 +20,32 @@ export async function settled(page: Page): Promise<void> {
     undefined,
     { timeout: 20_000 },
   );
+
+  /*
+   * Answer the cookie notice, once, the way a person would.
+   *
+   * It is a fixed bar at the bottom of every page until someone chooses, so a
+   * suite that ignores it spends its life clicking through it. Declining is the
+   * right default here: it keeps analytics off during tests, which is also what
+   * we want — the suite should not be generating product-analytics events.
+   *
+   * `cookie-consent.spec.ts` deliberately does NOT call this, so the notice
+   * itself is still exercised and audited.
+   */
+  const reject = page.getByRole("button", { name: "Necessary only" });
+  if (await reject.isVisible().catch(() => false)) {
+    /*
+     * Pressed, not clicked.
+     *
+     * A mouse click switches the browser's focus modality to pointer, and the
+     * focus ring is `:focus-visible` — which correctly does not paint for a
+     * mouse. Clicking here made the focus-ring test report that NO element had
+     * a visible ring, because the modality had been changed out from under it.
+     * A key press leaves the modality where a keyboard test needs it.
+     */
+    await reject.press("Enter");
+    await expect(reject).toBeHidden();
+  }
 }
 
 /** A fresh address per test, on a TLD that can never resolve. */

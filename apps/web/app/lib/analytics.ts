@@ -3,8 +3,9 @@
  *
  * Events go to Inkloom's own API and are stored in Inkloom's own database.
  * There is no third-party script, no advertising pixel, and nothing that
- * follows a visitor to another site — which is also why the cookie policy has
- * nothing to ask consent for.
+ * follows a visitor to another site. It is still not STRICTLY NECESSARY for
+ * the service to work, which is the test that matters, so `track` sends
+ * nothing until the visitor has actively accepted.
  *
  * WHAT IS NEVER SENT, enforced on both sides:
  *   - email addresses, names, or anything else identifying
@@ -17,6 +18,7 @@
  * client cannot widen it. The user id is attached SERVER-side from the session,
  * never sent from the browser.
  */
+import { readCookieChoice } from "../components/cookie-notice";
 
 export const ANALYTICS_EVENTS = [
   "landing_viewed",
@@ -122,6 +124,17 @@ export function track(
   properties?: Record<string, string | number | boolean>,
 ): void {
   if (typeof window === "undefined") return;
+
+  /*
+   * Consent first, and it is not assumed.
+   *
+   * Analytics is first-party and modest, but it is not strictly necessary for
+   * the service to work — which is the line the ePrivacy Directive and the
+   * DPDP Act draw. So nothing is recorded until someone has actively accepted,
+   * and an undecided visitor counts as a no. A banner that asks and then sends
+   * the event anyway is worse than no banner at all.
+   */
+  if (readCookieChoice() !== "accepted") return;
 
   const attribution = captureAttribution();
 

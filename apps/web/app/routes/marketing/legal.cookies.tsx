@@ -1,6 +1,6 @@
 import type { Route } from "./+types/legal.cookies";
 import { buildMeta } from "../../lib/seo";
-import { LegalDocument, LEGAL_UPDATED } from "../../components/legal";
+import { LegalDocument, LEGAL_CONTACT, LEGAL_UPDATED } from "../../components/legal";
 
 export function meta({ location }: Route.MetaArgs) {
   return buildMeta({
@@ -10,38 +10,71 @@ export function meta({ location }: Route.MetaArgs) {
   });
 }
 
+/**
+ * Cookie Policy.
+ *
+ * The previous version said there was nothing to consent to, which stopped
+ * being true the moment product analytics existed: analytics is not strictly
+ * necessary for the service to work, and that is the test. This names every
+ * item, its purpose, its lifetime, and how to change the decision.
+ */
 export default function Cookies() {
   return (
     <LegalDocument
       title="Cookie Policy"
       updated={LEGAL_UPDATED}
-      summary="Inkloom sets very few cookies, and none of them track you across other websites."
+      summary="Every cookie and equivalent technology Inkloom uses, what each is for, how long it lasts, and how to change your choice."
+      contact="Questions about cookies?"
       sections={[
         {
-          heading: "The whole list",
+          heading: "The short version",
           paragraphs: [
-            "__Host-inkloom_session — your sign-in session. Strictly necessary; without it you cannot stay signed in. HttpOnly, so JavaScript cannot read it, Secure, SameSite=Lax, and host-only. It lasts up to 30 days, or until you sign out.",
-            "Cloudflare Turnstile cookies — set only on the signup, sign-in, password-reset and contact pages, by Cloudflare's bot check. Strictly necessary to tell a person from a script, and short-lived.",
-            "That is the complete list. There is no advertising cookie, no third-party analytics cookie, and nothing that follows you to another site.",
+            "Inkloom uses a small number of strictly necessary cookies to sign you in and keep the service secure. Those cannot be switched off, because without them the service cannot work.",
+            "Separately, we ask for your consent to first-party product analytics. That is a genuine choice: nothing is recorded until you accept, declining costs you nothing, and you can change your mind at any time.",
+            "We use no advertising cookies, no third-party trackers, and nothing that follows you to another website.",
           ],
         },
         {
-          heading: "Why there is no cookie banner",
+          heading: "Strictly necessary — always on",
           paragraphs: [
-            "Consent banners exist because sites set cookies that are not necessary — advertising, cross-site tracking, third-party analytics. Inkloom sets none of those, so there is nothing to ask you to consent to.",
-            "Product analytics are first-party and do not use a cookie: an anonymous identifier is kept in your browser's local storage and is only linked to your account after you sign in and opt in. You can turn analytics off in your profile, and clearing site data removes the identifier.",
+            "These are exempt from consent under the ePrivacy Directive and the equivalent rules elsewhere, because the service you asked for cannot be provided without them.",
+          ],
+          list: [
+            "Session cookie (__Host-inkloom_session) — keeps you signed in. HttpOnly, so JavaScript cannot read it; SameSite=Lax; Secure in production. Expires after 7 days of inactivity and no later than 30 days.",
+            "OAuth state (better-auth.state) — protects a Google sign-in against interception while it is in progress. Deleted as soon as the sign-in completes, typically within a minute.",
+            "Turnstile (set by challenges.cloudflare.com) — Cloudflare's bot check on the signup, sign-in, password-reset and contact forms. It distinguishes people from automated traffic and is not used for advertising or profiling.",
           ],
         },
         {
-          heading: "Controlling them",
+          heading: "Analytics — only with your consent",
           paragraphs: [
-            "Every browser lets you view and delete cookies for a site. Deleting Inkloom's will sign you out, and blocking them entirely will prevent you from signing in — the session cookie is how sign-in works.",
+            "If you accept, we record which pages are viewed and which actions are taken, so we can tell what is confusing and what is working. It is first-party: the data goes to our own service and is never shared or sold.",
+            "It is stored against a random identifier, not your name or email, and it is deleted after 14 months.",
+            "If you decline, nothing is recorded at all. We do not collect first and delete later.",
+          ],
+          list: [
+            "inkloom.cookie-choice (local storage) — remembers your answer so we stop asking. Set whichever way you answer, including when you decline, so that declining does not require setting a cookie you rejected.",
+            "Analytics identifier (local storage, only if you accept) — a random value with no personal data in it, used to join one visit to the next.",
+          ],
+        },
+        {
+          heading: "Changing your mind",
+          paragraphs: [
+            "Clearing this site's data in your browser removes the stored choice, and we will ask again on your next visit.",
+            "You can also block or delete cookies in your browser settings. Blocking the strictly necessary ones will prevent you from signing in — not as a penalty, but because the session cookie is what being signed in consists of.",
+            `If you would rather we handled it for you, write to ${LEGAL_CONTACT} and we will.`,
+          ],
+        },
+        {
+          heading: "Do Not Track and Global Privacy Control",
+          paragraphs: [
+            "We do not run cross-site tracking, so there is nothing for a Do Not Track header to switch off. We treat a Global Privacy Control signal as a decision to decline analytics, and will not ask again while it is present.",
           ],
         },
         {
           heading: "Changes",
           paragraphs: [
-            "If we ever add a cookie that is not strictly necessary, we will update this page and ask for your consent first.",
+            "If we add a cookie that is not strictly necessary, we will update this page and ask for your consent before setting it — not afterwards. The date at the top reflects the current version.",
           ],
         },
       ]}
