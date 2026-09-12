@@ -143,5 +143,26 @@ export function deviceLabel(userAgent: string | null | undefined): string {
             ? "Safari"
             : "Unknown browser";
 
+  /*
+   * When neither half is known, say so once.
+   *
+   * "Unknown browser on Unknown OS" is technically accurate and reads like a
+   * fault. It happens when a request genuinely carries no User-Agent — a
+   * server-to-server call, or a client that strips it — and "Unknown device"
+   * says the same thing without looking broken.
+   */
+  if (browser === "Unknown browser" && os === "Unknown OS") return "Unknown device";
+
   return `${browser} on ${os}`;
+}
+
+/**
+ * Tidy a label that was stored before `deviceLabel` produced "Unknown device".
+ *
+ * Existing rows keep whatever string was written at the time, and they live for
+ * up to 30 days. This is display-only: it never rewrites stored data.
+ */
+export function displayDeviceLabel(stored: string | null | undefined): string {
+  if (!stored) return "Unknown device";
+  return stored === "Unknown browser on Unknown OS" ? "Unknown device" : stored;
 }

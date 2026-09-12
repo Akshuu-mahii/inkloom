@@ -90,6 +90,28 @@ export async function call<T>(path: string, options: CallOptions = {}): Promise<
     const userAgent = request.headers.get("user-agent");
     if (userAgent) headers.set("user-agent", userAgent);
 
+    /*
+     * Forward the visitor's IP, for the same reason and with worse
+     * consequences if we do not.
+     *
+     * Sign-in, signup and password reset all go through a server action, so
+     * without this the API saw no client address at all — and every one of
+     * those requests shared a SINGLE per-IP rate-limit bucket, worldwide. That
+     * inverts the control: one attacker gets the same budget as the entire
+     * population, and a modest burst locks everyone else out.
+     *
+     * `cf-connecting-ip` is set by Cloudflare's edge and cannot be spoofed by
+     * an external client, which is what makes forwarding it safe: the value
+     * originates at the edge, not from the browser.
+     */
+    for (const header of ["cf-connecting-ip", "x-real-ip", "x-forwarded-for"]) {
+      const value = request.headers.get(header);
+      if (value) {
+        headers.set(header, value);
+        break;
+      }
+    }
+
     // Propagate the request id so a page render and its API calls share one
     // correlation id in the logs.
     const requestId = request.headers.get("x-request-id");

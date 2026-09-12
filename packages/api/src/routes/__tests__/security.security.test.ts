@@ -495,3 +495,45 @@ describe("rate limiting", () => {
     expect(spoofed.status).toBe(429);
   });
 });
+
+// ===========================================================================
+describe("per-IP limits actually separate callers", () => {
+  it("keys the bucket on the caller's address, not on one shared subject", async () => {
+    /*
+     * This inverted the control once already, invisibly.
+     *
+     * Sign-in and signup go through a server action, and the helper that makes
+     * that call forwarded no client address — so the API saw none, and every
+     * request in the world shared a SINGLE `ip:` bucket. One attacker then had
+     * the same budget as the entire population, and a modest burst would lock
+     * everyone else out. Nothing failed; the limiter just stopped separating
+     * anybody.
+     */
+    await app.reset();
+
+    const attempt = (ip: string) =>
+      app.json("/v1/auth/forgot-password", {
+        method: "POST",
+        headers: { "cf-connecting-ip": ip },
+        body: JSON.stringify({ email: "someone@example.test", turnstileToken: "t" }),
+      });
+
+    await attempt("203.0.113.10");
+    await attempt("203.0.113.20");
+
+    const rows = await app.db.db.execute<{ subject: string }>(
+      sql`SELECT DISTINCT subject FROM rate_limit_events WHERE bucket LIKE '%.ip'`,
+    );
+
+    expect(
+      rows.rows.length,
+      "two different addresses must land in two different buckets",
+    ).toBeGreaterThanOrEqual(2);
+
+    // And never the raw address.
+    for (const row of rows.rows) {
+      expect(row.subject).not.toMatch(/203\.0\.113/);
+      expect(row.subject).toMatch(/^ip:[0-9a-f]+$/);
+    }
+  });
+});

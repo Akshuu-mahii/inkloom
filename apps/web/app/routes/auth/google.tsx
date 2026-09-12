@@ -58,6 +58,11 @@ export async function action({ request }: Route.ActionArgs) {
       ...(request.headers.get("user-agent")
         ? { "user-agent": request.headers.get("user-agent")! }
         : {}),
+      // So this request lands in the caller's own rate-limit bucket, not a
+      // shared one. See the note in lib/api.ts.
+      ...(request.headers.get("cf-connecting-ip")
+        ? { "cf-connecting-ip": request.headers.get("cf-connecting-ip")! }
+        : {}),
     },
     body: JSON.stringify({ provider: "google", callbackURL }),
   }).catch(() => null);

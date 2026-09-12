@@ -27,6 +27,7 @@ import {
   supportRequest,
   user as userTable,
 } from "@inkloom/db";
+import { displayDeviceLabel } from "@inkloom/core/auth";
 import {
   fingerprintCode,
   generateCode,
@@ -324,7 +325,7 @@ adminRoutes.get("/users/:id", requirePermission("users.read"), async (c) => {
       id: s.id,
       // Device label only. `s.token` is never selected or serialised.
       // Stored pre-labelled by the session-create hook; do not re-parse.
-      device: s.userAgent ?? "Unknown device",
+      device: displayDeviceLabel(s.userAgent),
       createdAt: s.createdAt,
       lastActiveAt: s.lastActiveAt,
       expiresAt: s.expiresAt,

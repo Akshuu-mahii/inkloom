@@ -23,7 +23,13 @@ export async function loader({ request }: Route.LoaderArgs) {
     // Round-trip the intended destination so the user lands where they meant
     // to. `safeRedirectPath` on the login side is what stops this being an
     // open-redirect vector.
-    const next = new URL(request.url).pathname;
+    /*
+     * The PAGE path, not the data path. React Router appends `.data` when it
+     * fetches a route's data client-side, so without this the address bar shows
+     * `?next=%2Fapp%2Fsessions.data` and sign-in lands on raw JSON.
+     */
+    const path = new URL(request.url).pathname;
+    const next = path.endsWith(".data") ? path.slice(0, -".data".length) : path;
     throw redirect(`/auth/login?next=${encodeURIComponent(next)}`);
   }
 

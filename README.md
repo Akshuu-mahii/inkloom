@@ -158,9 +158,9 @@ mail server. Reproduce with the commands above.
 | ------------------------- | ------- | -------- |
 | Unit                      | 82      | pass     |
 | Integration + concurrency | 45      | pass     |
-| Security                  | 54      | pass     |
+| Security                  | 55      | pass     |
 | End-to-end (Playwright)   | 102     | pass     |
-| **Total**                 | **283** | **pass** |
+| **Total**                 | **284** | **pass** |
 
 The end-to-end figure counts **both** Playwright projects — 80 in `chromium` plus
 22 in `mobile`, which re-runs the accessibility and phone-layout journeys on a

@@ -37,6 +37,21 @@ export function safeRedirectPath(candidate: string | null | undefined, fallback 
   // Newlines or control characters could split a response header.
   if (CONTROL_CHARS.test(value)) return fallback;
 
+  /*
+   * React Router fetches route data from the page path with `.data` appended,
+   * so a session that expires during a client-side navigation produces a
+   * redirect target like `/app/sessions.data`. Sending someone there after
+   * sign-in lands them on raw JSON instead of the page they asked for.
+   *
+   * Handled here rather than only at the call sites, because this is the one
+   * place every redirect target passes through — including a stale link
+   * someone bookmarked while the bug existed.
+   */
+  const withoutDataSuffix = value.endsWith(".data") ? value.slice(0, -".data".length) : value;
+  if (withoutDataSuffix !== value) {
+    return safeRedirectPath(withoutDataSuffix || "/", fallback);
+  }
+
   // Resolve against a sentinel origin and confirm nothing escaped it.
   let url: URL;
   try {

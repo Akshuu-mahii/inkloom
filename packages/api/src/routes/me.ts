@@ -21,6 +21,7 @@ import {
   user as userTable,
   userConsent,
 } from "@inkloom/db";
+import { displayDeviceLabel } from "@inkloom/core/auth";
 import { templates } from "@inkloom/email";
 import type { Env } from "../context";
 import { apiError, ok, paged } from "../lib/response";
@@ -255,7 +256,7 @@ meRoutes.get("/sessions", async (c) => {
        * "macintosh", so it came back as "Chrome on Unknown OS" — which is
        * exactly what the sessions page showed.
        */
-      device: row.userAgent ?? "Unknown device",
+      device: displayDeviceLabel(row.userAgent),
       createdAt: row.createdAt,
       lastActiveAt: row.lastActiveAt,
       expiresAt: row.expiresAt,
@@ -438,7 +439,7 @@ meRoutes.post(
       })),
       sessions: sessions.map((s) => ({
         // Already a label; see the note above.
-        device: s.userAgent ?? "Unknown device",
+        device: displayDeviceLabel(s.userAgent),
         createdAt: s.createdAt,
         lastActiveAt: s.lastActiveAt,
         // Session tokens and IP hashes are deliberately excluded.
