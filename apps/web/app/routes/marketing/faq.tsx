@@ -21,8 +21,8 @@ const MORE = [
     a: "Not without asking. If we ever want to use customer inputs to improve the models, it will be opt-in, explained plainly, and off by default.",
   },
   {
-    q: "What happens to my credits if I delete my account?",
-    a: "They are forfeited. Deletion removes your personal data and ends every session; we keep an anonymised accounting record of grants because we are required to, with nothing personal attached.",
+    q: "How do I delete my account?",
+    a: "Email support@inkloom.com and we will do it for you. Deletion removes your personal data and ends every session, and any credits are forfeited; we keep an anonymised accounting record of grants because we are required to, with nothing personal attached.",
   },
   {
     q: "Is there an API?",

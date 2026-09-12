@@ -68,7 +68,9 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
                 Admin
               </Link>
             )}
-            <form method="post" action="/api/v1/auth/logout">
+            {/* Posts to a route, not to the API: a native form post navigates
+                to whatever it hits, and the API answers with JSON. */}
+            <form method="post" action="/auth/sign-out">
               <button type="submit" className="btn btn-quiet app-signout">
                 Sign out
               </button>

@@ -97,6 +97,31 @@ test.describe("sign in and out", () => {
     await expect(page.getByRole("heading", { name: /Welcome back/i })).toBeVisible();
   });
 
+  test("signing out lands on a page, not on the API's JSON", async ({ page }) => {
+    /*
+     * The header used to post straight at /api/v1/auth/logout. The session
+     * really did end, so every test that signed out passed — none of them
+     * looked at where the browser ended up, which was a blank page showing
+     * {"data":{"success":true},...}. This is that missing assertion.
+     */
+    await signUpAndVerify(page, uniqueEmail("signout"));
+    await page.goto("/app");
+    await settled(page);
+
+    await page.getByRole("button", { name: "Sign out" }).click();
+
+    // A real page on the site, not an API path.
+    await expect(page).not.toHaveURL(/\/api\//, { timeout: 20_000 });
+    await expect(page.locator("body")).not.toContainText('{"data"');
+    await expect(page.getByRole("link", { name: /Sign in/i }).first()).toBeVisible({
+      timeout: 20_000,
+    });
+
+    // And the session is genuinely gone: /app bounces to sign-in.
+    await page.goto("/app");
+    await expect(page).toHaveURL(/\/auth\/login/, { timeout: 20_000 });
+  });
+
   test("a wrong password and an unknown address give the same message", async ({ page }) => {
     const email = await signUpAndVerify(page, uniqueEmail("enum"));
     await page.goto("/app");

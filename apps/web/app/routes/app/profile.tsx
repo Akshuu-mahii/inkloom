@@ -222,25 +222,6 @@ export default function Profile() {
             </button>
           </Form>
         </section>
-
-        {/* --- Deletion ---------------------------------------------------- */}
-        <section style={{ paddingTop: "2rem", borderTop: "1px solid var(--color-critical)" }}>
-          <h2 style={{ fontSize: "var(--text-h4)", color: "var(--color-critical)" }}>
-            Delete your account
-          </h2>
-          <p style={{ marginTop: "0.5rem", color: "var(--color-muted)" }}>
-            Permanent. Your personal details are removed, every session is ended, and your credits
-            are forfeited. We keep an anonymised accounting record with no personal information
-            attached, because we are required to.
-          </p>
-          <a
-            href="/app/security#delete"
-            className="btn btn-danger"
-            style={{ marginTop: "1.25rem" }}
-          >
-            Delete my account
-          </a>
-        </section>
       </div>
     </>
   );

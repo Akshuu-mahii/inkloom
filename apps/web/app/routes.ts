@@ -45,6 +45,13 @@ export default [
     ]),
   ]),
 
+  /*
+   * Sign-out sits OUTSIDE the auth layout: it renders nothing, it only acts.
+   * Putting it in the layout would load that layout's chrome for a request
+   * whose entire job is to answer with a redirect.
+   */
+  ...prefix("auth", [route("sign-out", "routes/auth/sign-out.tsx")]),
+
   // --- Signed-in dashboard ------------------------------------------------
   layout("routes/app/layout.tsx", [
     ...prefix("app", [

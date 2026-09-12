@@ -622,7 +622,48 @@ describe("response envelope", () => {
 
 // ===========================================================================
 describe("account deletion", () => {
+  /**
+   * Self-service deletion ships OFF.
+   *
+   * The dashboard no longer offers it and the endpoint refuses by default, so
+   * everything below has to switch the flag on first. The behaviour is still
+   * worth pinning: it is the only path that anonymises an account, there is no
+   * admin equivalent, and it is what a deletion request is honoured with.
+   */
+  async function enableDeletion() {
+    await app.db.db.execute(sql`
+      INSERT INTO feature_flags (id, key, description, enabled, high_risk)
+      VALUES ('flag_test_delete', 'account_deletion_enabled', 'test', true, true)
+      ON CONFLICT (key) DO UPDATE SET enabled = true
+    `);
+    app.services.settings.invalidate();
+  }
+
+  it("is refused by default, whoever asks", async () => {
+    await signupAndVerify();
+    const session = await login();
+
+    const result = await app.json("/v1/me", {
+      method: "DELETE",
+      cookies: session.cookies,
+      body: JSON.stringify({
+        currentPassword: VALID.password,
+        confirmation: "DELETE MY ACCOUNT",
+      }),
+    });
+
+    expect(result.status).toBe(403);
+    expect(result.error?.code).toBe("FEATURE_DISABLED");
+
+    // And the account is untouched — refused, not half-done.
+    const still = await app.db.db.execute<{ status: string }>(
+      sql`SELECT status FROM users WHERE normalized_email = ${VALID.email}`,
+    );
+    expect(still.rows[0]?.status).toBe("active");
+  });
+
   it("anonymises the user, revokes sessions and preserves the ledger", async () => {
+    await enableDeletion();
     await signupAndVerify();
     const session = await login();
 
@@ -690,6 +731,7 @@ describe("account deletion", () => {
   });
 
   it("refuses deletion without a correct password (recent authentication)", async () => {
+    await enableDeletion();
     await signupAndVerify();
     const session = await login();
 

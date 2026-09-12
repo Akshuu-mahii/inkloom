@@ -1,14 +1,13 @@
-import { Form, redirect, useActionData, useNavigation, useOutletContext } from "react-router";
-import { useState } from "react";
+import { Form, useActionData, useNavigation, useOutletContext } from "react-router";
 import type { Route } from "./+types/security";
 import { call, fieldErrors, withCookies, type Me } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
-import { Field, Notice, PageHeader, Pill, formatCredits } from "../../components/ui";
+import { Field, Notice, PageHeader, Pill } from "../../components/ui";
 
 export function meta({ location }: Route.MetaArgs) {
   return buildMeta({
     title: "Security",
-    description: "Password, two-factor authentication and account deletion.",
+    description: "Password and two-factor authentication.",
     path: location.pathname,
     noindex: true,
   });
@@ -60,23 +59,6 @@ export async function action({ request }: Route.ActionArgs) {
       : { intent, error: null, fields: {} as Record<string, string>, ok: true };
   }
 
-  if (intent === "delete") {
-    const result = await call("/me", {
-      method: "DELETE",
-      request,
-      body: {
-        currentPassword: String(form.get("currentPassword") ?? ""),
-        confirmation: String(form.get("confirmation") ?? ""),
-      },
-    });
-
-    if (result.error) {
-      return { intent, error: result.error.message, fields: fieldErrors(result.error), ok: false };
-    }
-    // Session cookie is cleared by the API; forward that too.
-    return redirect("/?deleted=1", { headers: withCookies(result) });
-  }
-
   return { intent, error: "Unknown action.", fields: {} as Record<string, string>, ok: false };
 }
 
@@ -85,7 +67,6 @@ export default function Security() {
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const busy = navigation.state === "submitting";
-  const [confirmText, setConfirmText] = useState("");
 
   const forIntent = (intent: string) =>
     actionData && "intent" in actionData && actionData.intent === intent ? actionData : null;
@@ -249,59 +230,6 @@ export default function Security() {
             <div>
               <button type="submit" className="btn btn-ink" disabled={busy}>
                 Send confirmation
-              </button>
-            </div>
-          </Form>
-        </section>
-
-        {/* --- Delete ------------------------------------------------------ */}
-        <section
-          id="delete"
-          style={{ paddingTop: "2rem", borderTop: "1px solid var(--color-critical)" }}
-        >
-          <h2 style={{ fontSize: "var(--text-h4)", color: "var(--color-critical)" }}>
-            Delete your account
-          </h2>
-          <p style={{ marginTop: "0.5rem", color: "var(--color-muted)" }}>
-            This cannot be undone. Your name, email and profile are removed, every session ends,
-            pending email links stop working, and your {formatCredits(me.credits.balance)} in
-            credits are forfeited.
-          </p>
-
-          {forIntent("delete")?.error && (
-            <div style={{ marginTop: "1rem" }}>
-              <Notice tone="critical">{forIntent("delete")?.error}</Notice>
-            </div>
-          )}
-
-          <Form method="post" style={{ display: "grid", gap: "1.125rem", marginTop: "1.25rem" }}>
-            <input type="hidden" name="intent" value="delete" />
-            <Field
-              label="Confirm your password"
-              name="currentPassword"
-              type="password"
-              autoComplete="current-password"
-              required
-            />
-            <Field
-              label="Type DELETE MY ACCOUNT to confirm"
-              name="confirmation"
-              type="text"
-              autoComplete="off"
-              required
-              // Uncontrolled for the same hydration reason; the state below only
-              // gates the button, and the server re-checks the exact phrase.
-              onChange={(event) => setConfirmText(event.target.value)}
-            />
-            <div>
-              <button
-                type="submit"
-                className="btn btn-danger"
-                /* The exact phrase is also required server-side; this only
-                   stops the mis-click before it becomes a request. */
-                disabled={busy || confirmText !== "DELETE MY ACCOUNT"}
-              >
-                Permanently delete my account
               </button>
             </div>
           </Form>

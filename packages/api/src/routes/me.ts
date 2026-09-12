@@ -465,8 +465,23 @@ meRoutes.post(
 // ---------------------------------------------------------------------------
 meRoutes.delete("/", validateBody(deleteAccountSchema), async (c) => {
   const principal = c.get("principal")!;
-  const { auth, db, mailer, config, audit } = c.get("services");
+  const { auth, db, mailer, config, audit, settings } = c.get("services");
   const input = body<{ currentPassword: string; confirmation: string }>(c);
+
+  /*
+   * Checked BEFORE anything else, including the password.
+   *
+   * The dashboard hides the control when this flag is off, but that is
+   * presentation. This is the control: with the flag off the endpoint refuses
+   * whoever asks, however they ask.
+   */
+  if (!(await settings.isEnabled("account_deletion_enabled"))) {
+    throw apiError("FEATURE_DISABLED", {
+      details: {
+        reason: "Account deletion is not self-service. Contact support and we will do it for you.",
+      },
+    });
+  }
 
   // 1. Recent authentication, proven right now.
   const reauth = await auth.api

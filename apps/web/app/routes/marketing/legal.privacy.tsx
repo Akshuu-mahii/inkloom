@@ -73,7 +73,7 @@ export default function Privacy() {
         {
           heading: "Your rights",
           paragraphs: [
-            "You can export everything we hold from your profile, in one click, as JSON. You can correct your details there too, and you can delete your account outright.",
+            "You can export everything we hold from your profile, in one click, as JSON, and correct your details there too. To have your account deleted, email support@inkloom.com and we will do it — the right to erasure is yours whether or not there is a button for it.",
             "Deleting your account removes your email, name and profile, ends every session, and cancels pending email links. You may also ask us to restrict or object to processing, or complain to your data protection authority.",
           ],
         },
