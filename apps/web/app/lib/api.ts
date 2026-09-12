@@ -170,6 +170,10 @@ export interface Me {
   role: "user" | "support" | "operations" | "admin" | "super_admin";
   status: string;
   twoFactorEnabled: boolean;
+  /** False for an account created through Google: there is no password to confirm. */
+  hasPassword: boolean;
+  /** e.g. ["credential"], ["google"], or both once a password is set. */
+  providers: string[];
   createdAt: string | null;
   earlyAccess: { joined: boolean; joinedAt: string | null };
   profile: { displayName: string; company: string | null; timezone: string | null };

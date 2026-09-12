@@ -10,6 +10,7 @@ import { Hono } from "hono";
 import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
 import {
   accessCodeRedemption,
+  account as accountTable,
   creditLedger,
   dataExportRequest,
   newId,
@@ -57,6 +58,22 @@ meRoutes.get("/", async (c) => {
 
   const account = await db.query.user.findFirst({ where: eq(userTable.id, principal.userId) });
 
+  /*
+   * Whether this account has a password at all.
+   *
+   * Someone who signed up with Google has no credential row, so change-password,
+   * change-email and two-factor — all of which ask for the current password —
+   * cannot work for them. The dashboard needs to know that to offer "set a
+   * password" instead of a form that can only fail. The linked providers are
+   * returned for the same reason.
+   *
+   * Only the provider NAMES and a boolean leave the server. Never the hash.
+   */
+  const linked = await db
+    .select({ providerId: accountTable.providerId, password: accountTable.password })
+    .from(accountTable)
+    .where(eq(accountTable.userId, principal.userId));
+
   return ok(c, {
     // Note what is NOT here: no password hash, no session token, no internal
     // id, no raw IP. The serialisation is explicit rather than a row spread,
@@ -68,6 +85,8 @@ meRoutes.get("/", async (c) => {
     role: principal.role,
     status: principal.status,
     twoFactorEnabled: principal.twoFactorEnabled,
+    hasPassword: linked.some((row) => row.password !== null),
+    providers: linked.map((row) => row.providerId),
     createdAt: account?.createdAt ?? null,
     earlyAccess: {
       joined: Boolean(account?.earlyAccessJoinedAt),

@@ -159,6 +159,15 @@ export const twoFactorSchema = z.object({
   trustDevice: z.boolean().optional(),
 });
 
+/**
+ * Setting a FIRST password, for an account created through Google.
+ *
+ * No `currentPassword` field, because there is no current password — that is
+ * the whole point. The endpoint refuses if one already exists, so this cannot
+ * be used to bypass the change-password flow.
+ */
+export const setPasswordSchema = z.object({ newPassword: passwordSchema });
+
 /** Turning 2FA on or off both require the password, proven right now. */
 export const twoFactorPasswordSchema = z.object({
   currentPassword: z.string().min(1, "Enter your password.").max(200),

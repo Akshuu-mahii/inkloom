@@ -15,7 +15,7 @@
  */
 import { Hono } from "hono";
 import { eq, sql } from "drizzle-orm";
-import { newId, user as userTable, userConsent } from "@inkloom/db";
+import { account as accountTable, newId, user as userTable, userConsent } from "@inkloom/db";
 import { loginNeedsChallenge } from "@inkloom/core/rate-limit";
 import { safeRedirectPath } from "@inkloom/core/security";
 import { templates } from "@inkloom/email";
@@ -32,6 +32,7 @@ import {
   loginSchema,
   resendVerificationSchema,
   resetPasswordSchema,
+  setPasswordSchema,
   signupSchema,
   verifyEmailSchema,
   type LoginInput,
@@ -644,6 +645,76 @@ authRoutes.post("/change-password", requireAuth, validateBody(changePasswordSche
   const response = ok(c, { success: true });
   copySetCookies(result, response);
   return response;
+});
+
+// ---------------------------------------------------------------------------
+// POST /auth/set-password
+// ---------------------------------------------------------------------------
+/**
+ * Give a password to an account that has never had one.
+ *
+ * Signing up through Google creates no credential row, which quietly disables
+ * three things that all ask for the current password: changing the password,
+ * changing the email address, and turning on two-factor. The dashboard used to
+ * show all three to a Google user as forms that could only fail.
+ *
+ * This is the way back in. It is deliberately NOT a way to change an existing
+ * password — that path requires the old one — so it refuses outright if a
+ * password is already set. Otherwise anyone who got hold of a live session
+ * could overwrite the password without knowing it.
+ */
+authRoutes.post("/set-password", requireAuth, validateBody(setPasswordSchema), async (c) => {
+  const { auth, db, mailer, config, audit } = c.get("services");
+  const principal = c.get("principal")!;
+  const input = body<{ newPassword: string }>(c);
+
+  const existing = await db
+    .select({ password: accountTable.password })
+    .from(accountTable)
+    .where(eq(accountTable.userId, principal.userId));
+
+  if (existing.some((row) => row.password !== null)) {
+    throw apiError("CONFLICT", {
+      details: {
+        reason: "This account already has a password. Use the change-password form instead.",
+      },
+    });
+  }
+
+  const result = await auth.api
+    .setPassword({ body: { newPassword: input.newPassword }, headers: c.req.raw.headers })
+    .catch(() => null);
+
+  if (!result) {
+    throw apiError("INTERNAL_ERROR", {
+      details: { reason: "Could not set the password. Try again." },
+    });
+  }
+
+  // Same treatment as a password change: the account holder is told, because
+  // a password appearing on an account is exactly as significant as one
+  // changing.
+  await mailer.send({
+    to: principal.email,
+    template: "password_changed",
+    userId: principal.userId,
+    force: true,
+    rendered: templates.passwordChanged(
+      { appUrl: config.APP_URL, supportEmail: config.SUPPORT_EMAIL },
+      { name: principal.name, when: new Date().toUTCString() },
+    ),
+  });
+
+  await audit.security({
+    type: "password_changed",
+    severity: "warning",
+    userId: principal.userId,
+    ipHash: c.get("ipHash"),
+    requestId: c.get("requestId"),
+    metadata: { firstPassword: true },
+  });
+
+  return ok(c, { success: true });
 });
 
 // ---------------------------------------------------------------------------

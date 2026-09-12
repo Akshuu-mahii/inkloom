@@ -642,6 +642,97 @@ describe("response envelope", () => {
 });
 
 // ===========================================================================
+describe("an account with no password", () => {
+  /*
+   * What signing up through Google produces: a user row with no credential
+   * password. Everything that asks for the current password — change password,
+   * change email, enable two-factor — cannot work for them, which is why the
+   * dashboard has to know and why `set-password` exists.
+   *
+   * Simulated by clearing the password rather than driving a real OAuth flow:
+   * the resulting state is identical, and the point is what the API does with
+   * it.
+   */
+  async function stripPassword() {
+    await app.db.db.execute(sql`UPDATE accounts SET password = NULL`);
+  }
+
+  it("reports hasPassword on /me so the dashboard can branch", async () => {
+    await signupAndVerify();
+    const session = await login();
+
+    const before = await app.json<{ hasPassword: boolean; providers: string[] }>("/v1/me", {
+      cookies: session.cookies,
+    });
+    expect(before.data?.hasPassword).toBe(true);
+    expect(before.data?.providers).toContain("credential");
+
+    await stripPassword();
+
+    const after = await app.json<{ hasPassword: boolean }>("/v1/me", {
+      cookies: session.cookies,
+    });
+    expect(after.data?.hasPassword).toBe(false);
+  });
+
+  it("never returns the password hash itself", async () => {
+    await signupAndVerify();
+    const session = await login();
+    const result = await app.json("/v1/me", { cookies: session.cookies });
+    const serialised = JSON.stringify(result.data);
+    expect(serialised).not.toMatch(/hash|scrypt|\$2[aby]\$/);
+    expect(serialised).not.toContain(VALID.password);
+  });
+
+  it("can set a first password, which then satisfies the password rule", async () => {
+    await signupAndVerify();
+    const session = await login();
+    await stripPassword();
+
+    // The rule still applies to a first password.
+    const weak = await app.json("/v1/auth/set-password", {
+      method: "POST",
+      cookies: session.cookies,
+      body: JSON.stringify({ newPassword: "abcdef" }),
+    });
+    expect(weak.status).toBe(400);
+
+    const ok = await app.json("/v1/auth/set-password", {
+      method: "POST",
+      cookies: session.cookies,
+      body: JSON.stringify({ newPassword: "gK7#pw" }),
+    });
+    expect(ok.status).toBe(200);
+
+    // And it really is set: /me agrees, and the new password signs in.
+    const me = await app.json<{ hasPassword: boolean }>("/v1/me", { cookies: session.cookies });
+    expect(me.data?.hasPassword).toBe(true);
+    expect((await login(VALID.email, "gK7#pw")).status).toBe(200);
+  });
+
+  it("refuses to overwrite a password that already exists", async () => {
+    /*
+     * The important refusal. Without it, anyone holding a live session could
+     * replace the password without knowing the old one — which is precisely
+     * what the change-password flow requires and this one does not.
+     */
+    await signupAndVerify();
+    const session = await login();
+
+    const result = await app.json("/v1/auth/set-password", {
+      method: "POST",
+      cookies: session.cookies,
+      body: JSON.stringify({ newPassword: "zZ9#qq" }),
+    });
+    expect(result.status).toBe(409);
+    expect(result.error?.code).toBe("CONFLICT");
+
+    // The original password still works.
+    expect((await login()).status).toBe(200);
+  });
+});
+
+// ===========================================================================
 describe("account deletion", () => {
   /**
    * Self-service deletion ships OFF.

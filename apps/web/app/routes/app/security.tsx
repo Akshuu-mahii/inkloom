@@ -113,6 +113,34 @@ export async function action({ request }: Route.ActionArgs) {
     return new Response(null, { status: 204, headers: withCookies(result) });
   }
 
+  if (intent === "set-password") {
+    const next = String(form.get("newPassword") ?? "");
+    if (next !== String(form.get("confirmPassword") ?? "")) {
+      return {
+        intent,
+        error: "Both passwords need to match.",
+        fields: {} as Record<string, string>,
+        ok: false,
+        setup: null,
+      };
+    }
+    const result = await call("/auth/set-password", {
+      method: "POST",
+      request,
+      body: { newPassword: next },
+    });
+    if (result.error) {
+      return {
+        intent,
+        error: result.error.message,
+        fields: fieldErrors(result.error),
+        ok: false,
+        setup: null,
+      };
+    }
+    return new Response(null, { status: 204, headers: withCookies(result) });
+  }
+
   if (intent === "password") {
     const next = String(form.get("newPassword") ?? "");
     if (next !== String(form.get("confirmPassword") ?? "")) {
@@ -223,7 +251,28 @@ export default function Security() {
             actually accepts it. Doing it the other way round is how people lock
             themselves out of their own account.
           */}
-          {setup ? (
+          {/*
+            Two-factor needs a password.
+
+            Better Auth requires the password to enable TOTP, and an account
+            created through Google has none — so this section could not work for
+            them either. Rather than a form that fails, say what is missing.
+
+            Worth knowing: a Google-only account is not unprotected meanwhile.
+            The sign-in goes through Google, so whatever second factor is on the
+            Google account already guards it. This adds one that is Inkloom's
+            own, which matters once the account also has a password.
+          */}
+          {!me.hasPassword ? (
+            <div style={{ marginTop: "1.25rem" }}>
+              <Notice tone="info" title="Set a password first">
+                Turning on two-factor here needs a password to confirm it is you, and this account
+                signs in with Google instead. <a href="#password">Set a password</a> and this
+                section becomes available. Until then your sign-in is protected by whatever
+                two-factor your Google account uses.
+              </Notice>
+            </div>
+          ) : setup ? (
             <div style={{ marginTop: "1.25rem", display: "grid", gap: "1.25rem" }}>
               <Notice tone="caution" title="Save your backup codes now">
                 These are shown once. They are the only way in if you lose your phone.
@@ -352,93 +401,173 @@ export default function Security() {
         </section>
 
         {/* --- Password ---------------------------------------------------- */}
-        <section style={{ paddingTop: "2rem", borderTop: "1px solid var(--color-rule-soft)" }}>
-          <h2 style={{ fontSize: "var(--text-h4)" }}>Change your password</h2>
-          {forIntent("password")?.error && (
-            <div style={{ marginTop: "1rem" }}>
-              <Notice tone="critical">{forIntent("password")?.error}</Notice>
-            </div>
-          )}
+        <section
+          id="password"
+          style={{ paddingTop: "2rem", borderTop: "1px solid var(--color-rule-soft)" }}
+        >
+          {me.hasPassword ? (
+            <>
+              <h2 style={{ fontSize: "var(--text-h4)" }}>Change your password</h2>
+              {forIntent("password")?.error && (
+                <div style={{ marginTop: "1rem" }}>
+                  <Notice tone="critical">{forIntent("password")?.error}</Notice>
+                </div>
+              )}
 
-          <Form method="post" style={{ display: "grid", gap: "1.125rem", marginTop: "1.25rem" }}>
-            <input type="hidden" name="intent" value="password" />
-            <Field
-              label="Current password"
-              name="currentPassword"
-              type="password"
-              autoComplete="current-password"
-              required
-            />
-            <Field
-              label="New password"
-              name="newPassword"
-              type="password"
-              autoComplete="new-password"
-              minLength={12}
-              required
-              hint="At least 6 characters, including a letter, a number and a special character."
-            />
-            <Field
-              label="Confirm new password"
-              name="confirmPassword"
-              type="password"
-              autoComplete="new-password"
-              required
-            />
-            <Notice tone="info">
-              Changing your password signs out every other device and emails you a confirmation.
-            </Notice>
-            <div>
-              <button type="submit" className="btn btn-ink" disabled={busy}>
-                Change password
-              </button>
-            </div>
-          </Form>
+              <Form
+                method="post"
+                style={{ display: "grid", gap: "1.125rem", marginTop: "1.25rem" }}
+              >
+                <input type="hidden" name="intent" value="password" />
+                <Field
+                  label="Current password"
+                  name="currentPassword"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                />
+                <Field
+                  label="New password"
+                  name="newPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={6}
+                  required
+                  hint="At least 6 characters, including a letter, a number and a special character."
+                />
+                <Field
+                  label="Confirm new password"
+                  name="confirmPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                />
+                <Notice tone="info">
+                  Changing your password signs out every other device and emails you a confirmation.
+                </Notice>
+                <div>
+                  <button type="submit" className="btn btn-ink" disabled={busy}>
+                    Change password
+                  </button>
+                </div>
+              </Form>
+            </>
+          ) : (
+            <>
+              {/*
+                No password at all.
+
+                Signing up through Google creates no credential, so there is
+                nothing for a change-password form to confirm. Showing one would
+                be showing a form that can only fail — and it is what silently
+                disabled two-factor and email changes for these accounts too.
+              */}
+              <h2 style={{ fontSize: "var(--text-h4)" }}>Set a password</h2>
+              <p style={{ marginTop: "0.5rem", color: "var(--color-muted)" }}>
+                You signed in with Google, so this account has no password. Setting one lets you
+                turn on two-factor and change your email address. Signing in with Google keeps
+                working either way — this adds a second way in, it does not replace the first.
+              </p>
+
+              {forIntent("set-password")?.error && (
+                <div style={{ marginTop: "1rem" }}>
+                  <Notice tone="critical">{forIntent("set-password")?.error}</Notice>
+                </div>
+              )}
+
+              <Form
+                method="post"
+                style={{ display: "grid", gap: "1.125rem", marginTop: "1.25rem" }}
+              >
+                <input type="hidden" name="intent" value="set-password" />
+                <Field
+                  label="New password"
+                  name="newPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={6}
+                  required
+                  hint="At least 6 characters, including a letter, a number and a special character."
+                />
+                <Field
+                  label="Confirm password"
+                  name="confirmPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                />
+                <div>
+                  <button type="submit" className="btn btn-ink" disabled={busy}>
+                    Set password
+                  </button>
+                </div>
+              </Form>
+            </>
+          )}
         </section>
 
         {/* --- Email ------------------------------------------------------- */}
         <section style={{ paddingTop: "2rem", borderTop: "1px solid var(--color-rule-soft)" }}>
           <h2 style={{ fontSize: "var(--text-h4)" }}>Change your email address</h2>
-          {forIntent("email")?.ok && (
-            <div style={{ marginTop: "1rem" }}>
-              <Notice tone="positive" title="Check your current inbox">
-                We sent a confirmation link to {me.email}. The change takes effect once you click
-                it.
-              </Notice>
-            </div>
-          )}
-          {forIntent("email")?.error && (
-            <div style={{ marginTop: "1rem" }}>
-              <Notice tone="critical">{forIntent("email")?.error}</Notice>
-            </div>
-          )}
 
-          <Form method="post" style={{ display: "grid", gap: "1.125rem", marginTop: "1.25rem" }}>
-            <input type="hidden" name="intent" value="email" />
-            <Field
-              label="New email address"
-              name="newEmail"
-              type="email"
-              autoComplete="email"
-              required
-            />
-            <Field
-              label="Confirm your password"
-              name="currentPassword"
-              type="password"
-              autoComplete="current-password"
-              required
-            />
-            <p className="field-hint">
-              We send the confirmation to your CURRENT address, so a change cannot happen without
-              access to the inbox you already use.
+          {!me.hasPassword ? (
+            <p style={{ marginTop: "0.5rem", color: "var(--color-muted)" }}>
+              Changing your address needs a password to confirm it is you, and this account does not
+              have one yet. <a href="#password">Set a password</a> first.
             </p>
-            <div>
-              <button type="submit" className="btn btn-ink" disabled={busy}>
-                Send confirmation
-              </button>
-            </div>
-          </Form>
+          ) : (
+            <>
+              {forIntent("email")?.ok && (
+                <div style={{ marginTop: "1rem" }}>
+                  <Notice tone="positive" title="Check your current inbox">
+                    We sent a confirmation link to {me.email}. The change takes effect once you
+                    click it.
+                  </Notice>
+                </div>
+              )}
+              {forIntent("email")?.error && (
+                <div style={{ marginTop: "1rem" }}>
+                  <Notice tone="critical">{forIntent("email")?.error}</Notice>
+                </div>
+              )}
+
+              <Form
+                method="post"
+                style={{ display: "grid", gap: "1.125rem", marginTop: "1.25rem" }}
+              >
+                <input type="hidden" name="intent" value="email" />
+                <Field
+                  label="New email address"
+                  name="newEmail"
+                  type="email"
+                  /*
+                    Not `autoComplete="email"`. That told the browser this field
+                    wanted the saved address, so it filled in the address you
+                    already use — into the box asking which OTHER address you
+                    want. Every visit arrived pre-filled with the wrong answer.
+                  */
+                  autoComplete="off"
+                  required
+                />
+                <Field
+                  label="Confirm your password"
+                  name="currentPassword"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                />
+                <p className="field-hint">
+                  We send the confirmation to your CURRENT address, so a change cannot happen
+                  without access to the inbox you already use.
+                </p>
+                <div>
+                  <button type="submit" className="btn btn-ink" disabled={busy}>
+                    Send confirmation
+                  </button>
+                </div>
+              </Form>
+            </>
+          )}
         </section>
       </div>
     </>
