@@ -183,7 +183,7 @@ export default function Signup({ loaderData }: Route.ComponentProps) {
              * meter, but the input owns its own value.
              */
             onChange={(event) => setPassword(event.target.value)}
-            hint="At least 12 characters. A short phrase is easier to remember and harder to guess."
+            hint="At least 6 characters, including a letter, a number and a special character."
             error={fields.password}
           />
           <PasswordStrength value={password} />
@@ -314,38 +314,52 @@ export default function Signup({ loaderData }: Route.ComponentProps) {
 function PasswordStrength({ value }: { value: string }) {
   if (!value) return null;
 
-  const length = value.length;
-  const variety = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((re) => re.test(value)).length;
-
-  const score = length >= 20 ? 3 : length >= 16 ? 2 : length >= 12 ? (variety >= 2 ? 2 : 1) : 0;
-
-  const labels = ["Too short", "Workable", "Good", "Strong"] as const;
-  const colors = [
-    "var(--color-critical)",
-    "var(--color-caution)",
-    "var(--color-positive)",
-    "var(--color-positive)",
-  ] as const;
+  /*
+   * A checklist, not a strength bar.
+   *
+   * With composition rules the useful question is "what is still missing?",
+   * and a single meter cannot answer it — someone with fourteen lowercase
+   * letters needs to be told it is the digit and the symbol that are wanted,
+   * not shown an amber bar. These are the same four rules `passwordSchema`
+   * enforces on the server, so the form cannot promise something the API then
+   * refuses.
+   */
+  const rules = [
+    { label: "6 characters or more", met: value.length >= 6 },
+    { label: "a letter", met: /[A-Za-z]/.test(value) },
+    { label: "a number", met: /\d/.test(value) },
+    { label: "a special character", met: /[^A-Za-z0-9]/.test(value) },
+  ];
+  const remaining = rules.filter((r) => !r.met);
 
   return (
     <div style={{ marginTop: "0.5rem" }} aria-live="polite">
-      <div style={{ display: "flex", gap: "3px" }}>
-        {[0, 1, 2, 3].map((index) => (
-          <span
-            key={index}
-            aria-hidden="true"
-            style={{
-              height: "3px",
-              flex: 1,
-              background: index <= score ? colors[score] : "var(--color-rule-soft)",
-            }}
-          />
+      <ul
+        style={{
+          listStyle: "none",
+          margin: 0,
+          padding: 0,
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "0.25rem 0.875rem",
+          fontSize: "var(--text-micro)",
+        }}
+      >
+        {rules.map((rule) => (
+          <li
+            key={rule.label}
+            style={{ color: rule.met ? "var(--color-positive)" : "var(--color-muted)" }}
+          >
+            {/* The tick and the wording both carry it, so colour is never the
+                only signal. */}
+            <span aria-hidden="true">{rule.met ? "\u2713" : "\u00b7"}</span> {rule.label}
+          </li>
         ))}
-      </div>
-      {/* The word carries the meaning, so the bar colour is never the only signal. */}
-      <p style={{ marginTop: "0.375rem", fontSize: "var(--text-micro)", color: colors[score] }}>
-        {labels[score]}
-        {score === 0 && ` — ${12 - length} more character${12 - length === 1 ? "" : "s"} needed`}
+      </ul>
+      <p className="sr-only">
+        {remaining.length === 0
+          ? "Password meets every requirement."
+          : `Still needed: ${remaining.map((r) => r.label).join(", ")}.`}
       </p>
     </div>
   );

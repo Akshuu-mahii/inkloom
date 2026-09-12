@@ -95,7 +95,7 @@ const RULES: Rule[] = [
       // Test fixtures, which are obviously fake by their own text.
       /test-(?:secret|pepper|access-code|ip-hash)/,
       /integration-test-pepper/,
-      /a-perfectly-fine-passphrase/,
+      /a-perfectly-fine-passphrase-1/,
       // Reading from the environment is the correct pattern, not a finding.
       /process\.env\./,
       /env\[["']/,

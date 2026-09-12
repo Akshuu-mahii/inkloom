@@ -26,6 +26,7 @@ import { bySubjectIp, rateLimit } from "../middleware/rate-limit";
 import { requireAuth } from "../middleware/auth";
 import {
   changePasswordSchema,
+  twoFactorPasswordSchema,
   twoFactorSchema,
   forgotPasswordSchema,
   loginSchema,
@@ -644,6 +645,157 @@ authRoutes.post("/change-password", requireAuth, validateBody(changePasswordSche
   copySetCookies(result, response);
   return response;
 });
+
+// ---------------------------------------------------------------------------
+// POST /auth/two-factor/enable | /confirm | /disable
+// ---------------------------------------------------------------------------
+/**
+ * Setting 2FA up, in the same JSON-only shape as everything else.
+ *
+ * These were missing, and the dashboard pointed its forms straight at
+ * `/api/auth/two-factor/*` to compensate. That did not work: React Router
+ * treats a `<Form action>` as a route to match, there is no route under
+ * `/api/*`, and "Set up two-factor" landed on a 404. So two-factor was not
+ * merely awkward to turn on — it could not be turned on at all.
+ *
+ * Enabling is deliberately two steps. `skipVerificationOnEnable` is false, so
+ * `enable` only issues a secret and `confirm` is what actually arms it. That
+ * ordering is what stops someone locking themselves out by saving a secret
+ * their authenticator never actually accepted.
+ */
+authRoutes.post(
+  "/two-factor/enable",
+  requireAuth,
+  validateBody(twoFactorPasswordSchema),
+  async (c) => {
+    const { auth, audit } = c.get("services");
+    const principal = c.get("principal")!;
+    const input = body<{ currentPassword: string }>(c);
+
+    const result = await auth.api
+      .enableTwoFactor({
+        body: { password: input.currentPassword, issuer: "Inkloom" },
+        headers: c.req.raw.headers,
+      })
+      .catch(() => null);
+
+    // Better Auth asks for the password here, so a failure is nearly always a
+    // wrong one. Saying so beats a generic error on a form with one field.
+    if (!result || !("totpURI" in result)) {
+      throw apiError("INVALID_CREDENTIALS", {
+        details: { currentPassword: "That password doesn't match your current one." },
+      });
+    }
+
+    await audit.recordStandalone({
+      action: "user.two_factor.setup_started",
+      actorType: "user",
+      actorId: principal.userId,
+      targetType: "user",
+      targetId: principal.userId,
+      requestId: c.get("requestId"),
+      ipHash: c.get("ipHash"),
+    });
+
+    /*
+     * The secret and the backup codes leave the server exactly once, to the
+     * person setting it up. Nothing here is stored in a log or an audit row —
+     * an audit trail that contained a TOTP secret would be a way in, not a
+     * record.
+     */
+    return ok(c, { totpURI: result.totpURI, backupCodes: result.backupCodes });
+  },
+);
+
+authRoutes.post("/two-factor/confirm", requireAuth, validateBody(twoFactorSchema), async (c) => {
+  const { auth, audit } = c.get("services");
+  const principal = c.get("principal")!;
+  const input = body<{ code: string }>(c);
+
+  const result = await auth.api
+    .verifyTOTP({ body: { code: input.code }, headers: c.req.raw.headers, asResponse: true })
+    .catch(() => null);
+
+  if (!result || !result.ok) {
+    await audit.security({
+      type: "admin_2fa_failed",
+      severity: "warning",
+      userId: principal.userId,
+      ipHash: c.get("ipHash"),
+      requestId: c.get("requestId"),
+      metadata: { stage: "setup" },
+    });
+    throw apiError("INVALID_CREDENTIALS", { details: { code: "That code is not valid." } });
+  }
+
+  await audit.recordStandalone({
+    action: "user.two_factor.enabled",
+    actorType: "user",
+    actorId: principal.userId,
+    targetType: "user",
+    targetId: principal.userId,
+    requestId: c.get("requestId"),
+    ipHash: c.get("ipHash"),
+  });
+
+  const response = ok(c, { success: true });
+  copySetCookies(result, response);
+  return response;
+});
+
+authRoutes.post(
+  "/two-factor/disable",
+  requireAuth,
+  validateBody(twoFactorPasswordSchema),
+  async (c) => {
+    const { auth, audit } = c.get("services");
+    const principal = c.get("principal")!;
+    const input = body<{ currentPassword: string }>(c);
+
+    /*
+     * Staff cannot switch it off.
+     *
+     * `requirePermission` refuses every admin request from an account without
+     * 2FA, so an admin who disabled it would lock themselves out of the very
+     * screens they need — and a compromised admin session could use this to
+     * strip the second factor before doing anything else.
+     */
+    if (principal.role !== "user") {
+      throw apiError("FORBIDDEN", {
+        details: {
+          reason:
+            "Staff accounts must keep two-factor on. Ask another admin if you are locked out.",
+        },
+      });
+    }
+
+    const result = await auth.api
+      .disableTwoFactor({
+        body: { password: input.currentPassword },
+        headers: c.req.raw.headers,
+        asResponse: true,
+      })
+      .catch(() => null);
+
+    if (!result || !result.ok) {
+      throw apiError("INVALID_CREDENTIALS", {
+        details: { currentPassword: "That password doesn't match your current one." },
+      });
+    }
+
+    await audit.security({
+      type: "two_factor_disabled",
+      severity: "warning",
+      userId: principal.userId,
+      ipHash: c.get("ipHash"),
+      requestId: c.get("requestId"),
+    });
+
+    const response = ok(c, { success: true });
+    copySetCookies(result, response);
+    return response;
+  },
+);
 
 // ---------------------------------------------------------------------------
 // POST /auth/two-factor/verify  and  /auth/two-factor/verify-backup

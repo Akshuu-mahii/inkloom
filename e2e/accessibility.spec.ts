@@ -88,7 +88,7 @@ test.describe("keyboard operation", () => {
     await page.keyboard.press("Tab");
     await page.keyboard.type(uniqueEmail("keyboard"));
     await page.keyboard.press("Tab");
-    await page.keyboard.type("a-perfectly-fine-passphrase");
+    await page.keyboard.type("a-perfectly-fine-passphrase-1");
 
     const values = await page.evaluate(() => {
       const form = document.querySelector("form")!;

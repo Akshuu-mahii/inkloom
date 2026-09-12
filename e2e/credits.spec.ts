@@ -99,7 +99,7 @@ test.describe("redeeming an access code", () => {
     await settled(page);
     await page.getByLabel("Your name").fill("Unverified");
     await page.getByLabel("Email address").fill(uniqueEmail("unverified"));
-    await page.getByLabel("Password").fill("a-perfectly-fine-passphrase");
+    await page.getByLabel("Password").fill("a-perfectly-fine-passphrase-1");
     await page.getByRole("checkbox", { name: /I agree to the/ }).check();
     const submit = page.getByRole("button", { name: /Create account|Checking/ });
     await expect(submit).toBeEnabled({ timeout: 20_000 });

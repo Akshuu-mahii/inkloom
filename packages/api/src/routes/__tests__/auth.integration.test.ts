@@ -24,7 +24,7 @@ beforeEach(async () => {
 
 const VALID = {
   email: "ada@example.test",
-  password: "a-perfectly-fine-passphrase",
+  password: "a-perfectly-fine-passphrase-1",
   name: "Ada Lovelace",
   acceptedTerms: true as const,
 };
@@ -129,15 +129,36 @@ describe("signup", () => {
     expect(app.mail.sent).toHaveLength(0);
   });
 
-  it("accepts a long passphrase and rejects a short password", async () => {
+  it("enforces every part of the password rule, and says which part failed", async () => {
+    /*
+     * Four rules, so four ways to fail. Each is checked on its own: a single
+     * "invalid password" test would still pass if three of the four quietly
+     * stopped being enforced.
+     */
+    const cases = [
+      { why: "too short", password: "a1!", expect: /at least 6/i },
+      { why: "no letter", password: "123456!", expect: /one letter/i },
+      { why: "no number", password: "abcdef!", expect: /one number/i },
+      { why: "no special character", password: "abcdef123", expect: /special character/i },
+    ];
+
+    for (const [index, c] of cases.entries()) {
+      const result = await signup({ email: `bad${index}@example.test`, password: c.password });
+      expect(result.status, c.why).toBe(400);
+      expect(result.error?.code, c.why).toBe("VALIDATION_ERROR");
+      expect(JSON.stringify(result.error), c.why).toMatch(c.expect);
+    }
+
+    // Six characters with one of each is the documented minimum, and it works.
+    const minimal = await signup({ email: "minimal@example.test", password: "aB3!xy" });
+    expect(minimal.status).toBe(200);
+
+    // A long passphrase is still fine, provided it carries a digit and a symbol.
     const long = await signup({
       email: "long@example.test",
-      password: "correct horse battery staple with plenty of room to spare",
+      password: "correct horse battery staple 7!",
     });
     expect(long.status).toBe(200);
-
-    const short = await signup({ email: "short@example.test", password: "short1!" });
-    expect(short.status).toBe(400);
   });
 
   it("never returns or logs a password hash", async () => {
@@ -383,10 +404,10 @@ describe("a stale session in the browser", () => {
     const token = extractToken(message!.html);
     const reset = await app.json("/v1/auth/reset-password", {
       method: "POST",
-      body: JSON.stringify({ token, password: "a-totally-new-passphrase" }),
+      body: JSON.stringify({ token, password: "a-totally-new-passphrase-7" }),
     });
     expect(reset.status).toBe(200);
-    expect((await login("forgetful@example.test", "a-totally-new-passphrase")).status).toBe(200);
+    expect((await login("forgetful@example.test", "a-totally-new-passphrase-7")).status).toBe(200);
   });
 });
 
@@ -409,7 +430,7 @@ describe("password reset", () => {
     const token = extractToken(message!.html);
     expect(token).toBeTruthy();
 
-    const newPassword = "an-entirely-different-passphrase";
+    const newPassword = "an-entirely-different-passphrase-2";
     const reset = await app.json("/v1/auth/reset-password", {
       method: "POST",
       body: JSON.stringify({ token, password: newPassword }),
@@ -424,7 +445,7 @@ describe("password reset", () => {
     // ...and the token cannot be replayed.
     const replay = await app.json("/v1/auth/reset-password", {
       method: "POST",
-      body: JSON.stringify({ token, password: "yet-another-passphrase-here" }),
+      body: JSON.stringify({ token, password: "yet-another-passphrase-here-3" }),
     });
     expect(replay.status).toBe(400);
   });
@@ -450,7 +471,7 @@ describe("password reset", () => {
     // The superseded token must be dead.
     const stale = await app.json("/v1/auth/reset-password", {
       method: "POST",
-      body: JSON.stringify({ token: firstToken, password: "a-brand-new-passphrase-x" }),
+      body: JSON.stringify({ token: firstToken, password: "a-brand-new-passphrase-x4" }),
     });
     expect(stale.status).toBe(400);
   });
@@ -485,7 +506,7 @@ describe("password reset", () => {
 
     await app.json("/v1/auth/reset-password", {
       method: "POST",
-      body: JSON.stringify({ token, password: "post-reset-passphrase-here" }),
+      body: JSON.stringify({ token, password: "post-reset-passphrase-here-5" }),
     });
 
     // The pre-reset session no longer resolves.
@@ -506,7 +527,7 @@ describe("password reset", () => {
 
     await app.json("/v1/auth/reset-password", {
       method: "POST",
-      body: JSON.stringify({ token, password: "notified-passphrase-value" }),
+      body: JSON.stringify({ token, password: "notified-passphrase-value-6" }),
     });
 
     const notice = app.mail.lastTo(VALID.email);

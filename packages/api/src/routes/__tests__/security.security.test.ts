@@ -25,7 +25,7 @@ beforeEach(async () => {
 
 const CREDENTIALS = {
   email: "victim@example.test",
-  password: "a-perfectly-fine-passphrase",
+  password: "a-perfectly-fine-passphrase-1",
   name: "Victim",
   acceptedTerms: true as const,
 };

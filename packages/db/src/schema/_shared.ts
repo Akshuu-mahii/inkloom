@@ -138,6 +138,10 @@ export const securityEventTypeEnum = pgEnum("security_event_type", [
   "account_suspended",
   "account_unsuspended",
   "account_deleted",
+  // Added in 0005. A second factor being switched off is a common first move
+  // after a takeover, so it belongs in the security trail, not just the audit.
+  "two_factor_enabled",
+  "two_factor_disabled",
   "credit_adjustment_suspicious",
   "unauthorized_admin_access",
   "data_export_requested",

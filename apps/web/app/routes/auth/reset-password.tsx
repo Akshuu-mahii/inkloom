@@ -91,7 +91,7 @@ export default function ResetPassword() {
           minLength={12}
           // Uncontrolled: see the note in signup.tsx — a controlled value is
           // wiped by hydration if the user types before JavaScript loads.
-          hint="At least 12 characters."
+          hint="At least 6 characters, including a letter, a number and a special character."
           error={fields.password}
           autoFocus
         />

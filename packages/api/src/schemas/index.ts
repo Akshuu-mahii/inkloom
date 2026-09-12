@@ -34,19 +34,36 @@ export const emailSchema = z
   .email("Enter a valid email address.");
 
 /**
- * Password.
+ * Password: at least 6 characters, with a letter, a number and a symbol.
  *
- * Length is the requirement. There are deliberately NO composition rules: NIST
- * SP 800-63B advises against them because they push people toward predictable
- * substitutions ("Password1!") without adding real entropy. The maximum is high
- * enough for any passphrase or password-manager output, and nothing here
- * forbids pasting.
+ * This is a product decision and it is worth being straight about the
+ * trade-off, because the previous rule was the opposite one. NIST SP 800-63B
+ * advises AGAINST composition rules and for length, on the evidence that
+ * "must contain a symbol" pushes people toward predictable shapes like
+ * "Passw0rd!" while a longer passphrase resists guessing far better. A
+ * six-character password meeting all three rules has a smaller search space
+ * than a twelve-character one meeting none.
+ *
+ * It is implemented as asked because the rules are familiar to users and the
+ * owner chose them. What compensates is elsewhere and stays in place: mandatory
+ * email verification, progressive login cooldowns, per-account and per-IP rate
+ * limits, Turnstile, scrypt hashing, and mandatory 2FA for staff. The maximum
+ * is high enough for any passphrase or password-manager output, and nothing
+ * here forbids pasting.
+ *
+ * Each rule gets its own message, so "that password is invalid" is never the
+ * whole answer — the person is told exactly what is missing.
  */
 export const passwordSchema = z
   .string()
-  .min(12, "Use at least 12 characters. A short phrase works well.")
+  .min(6, "Use at least 6 characters.")
   .max(200, "That password is too long (200 characters maximum).")
-  .refine((v) => v.trim().length > 0, "A password cannot be only whitespace.");
+  .refine((v) => /[A-Za-z]/.test(v), "Include at least one letter.")
+  .refine((v) => /\d/.test(v), "Include at least one number.")
+  .refine(
+    (v) => /[^A-Za-z0-9]/.test(v),
+    "Include at least one special character, such as ! ? # or -.",
+  );
 
 export const displayNameSchema = z
   .string()
@@ -140,6 +157,11 @@ export const verifyEmailSchema = z.object({ token: z.string().min(10).max(500) }
 export const twoFactorSchema = z.object({
   code: z.string().trim().min(4).max(64),
   trustDevice: z.boolean().optional(),
+});
+
+/** Turning 2FA on or off both require the password, proven right now. */
+export const twoFactorPasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Enter your password.").max(200),
 });
 
 export const resendVerificationSchema = z.object({ email: emailSchema });

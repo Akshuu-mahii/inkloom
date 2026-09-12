@@ -196,12 +196,15 @@ export function createAuth(deps: AuthDeps) {
       /** No sign-in until the address is confirmed. */
       requireEmailVerification: true,
       /**
-       * 12 is above the NIST floor of 8 and comfortably below any manager's
-       * limit. No composition rules (no "must contain a symbol") — those push
-       * people toward predictable substitutions and are explicitly discouraged
-       * by NIST SP 800-63B. Length and a breached-password check do more.
+       * Kept in step with `passwordSchema` in @inkloom/api.
+       *
+       * The library only ever checks length; the letter/number/symbol rules are
+       * enforced by that schema on every route that accepts a password. If this
+       * number were higher than the schema's, the schema would accept a
+       * password the library then rejected, and the person would be told their
+       * valid password was wrong.
        */
-      minPasswordLength: 12,
+      minPasswordLength: 6,
       /** Long enough for any passphrase; bounded so hashing cost stays sane. */
       maxPasswordLength: 200,
       /** Verification is required, so there is nothing to sign into yet. */

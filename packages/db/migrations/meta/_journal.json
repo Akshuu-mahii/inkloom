@@ -36,6 +36,13 @@
       "when": 1788949205720,
       "tag": "0004_fix_password_reset_view",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789210000000,
+      "tag": "0005_two_factor_security_events",
+      "breakpoints": true
     }
   ]
 }

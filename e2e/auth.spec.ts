@@ -1,3 +1,4 @@
+import { totp } from "./totp";
 import { expect, test } from "@playwright/test";
 import {
   clearMailbox,
@@ -22,8 +23,12 @@ test.describe("signup and verification", () => {
     await page.getByLabel("Email address").fill(email);
     await page.getByLabel("Password").fill(STRONG_PASSWORD);
 
-    // Strength feedback is advisory and must never block a long passphrase.
-    await expect(page.getByText(/Strong|Good/)).toBeVisible();
+    // The live checklist confirms every rule is met, so the form is not about
+    // to promise something the API will refuse.
+    // Scoped to the checklist: the field hint uses the same words.
+    const checklist = page.getByRole("listitem");
+    await expect(checklist.filter({ hasText: "6 characters or more" })).toBeVisible();
+    await expect(checklist.filter({ hasText: "a special character" })).toBeVisible();
 
     await page.getByRole("checkbox", { name: /I agree to the/ }).check();
 
@@ -69,7 +74,7 @@ test.describe("signup and verification", () => {
     await settled(page);
     await page.getByLabel("Your name").fill("Impostor");
     await page.getByLabel("Email address").fill(email);
-    await page.getByLabel("Password").fill("a-completely-different-phrase");
+    await page.getByLabel("Password").fill("a-completely-different-phrase-1");
     await page.getByRole("checkbox", { name: /I agree to the/ }).check();
 
     const submit = page.getByRole("button", { name: /Create account|Checking/ });
@@ -187,7 +192,7 @@ test.describe("password reset", () => {
     await page.goto(resetLink);
     await settled(page);
 
-    const newPassword = "an-entirely-new-passphrase";
+    const newPassword = "an-entirely-new-passphrase-1";
     // By ROLE and accessible name: `getByLabel` sees the visible label text,
     // which includes the aria-hidden required marker, while the accessible name
     // is clean. `exact` then disambiguates it from "Confirm new password".
@@ -207,6 +212,56 @@ test.describe("password reset", () => {
     await settled(page);
     await expect(page.getByRole("heading", { name: /needs a reset link/i })).toBeVisible();
     await expect(page.getByLabel("New password")).toHaveCount(0);
+  });
+});
+
+test.describe("two-factor", () => {
+  test("a user can turn it on from the dashboard", async ({ page }) => {
+    /*
+     * Through the UI, deliberately.
+     *
+     * The admin suite enrols by calling the API directly, which is why nobody
+     * noticed that the dashboard's own buttons were broken: the forms posted at
+     * /api/auth/two-factor/*, React Router tried to match that as a route, and
+     * "Set up two-factor" landed on a 404. Two-factor could not be switched on
+     * at all. This test clicks the buttons.
+     */
+    await signUpAndVerify(page, uniqueEmail("twofa"));
+    await page.goto("/app/security");
+    await settled(page);
+
+    await expect(page.getByRole("heading", { name: /Two-factor/i })).toBeVisible();
+
+    // Step 1: prove the password, get a secret and backup codes.
+    await page.getByLabel("Confirm your password").first().fill(STRONG_PASSWORD);
+    await page.getByRole("button", { name: /Set up two-factor/i }).click();
+
+    await expect(page.getByText(/Save your backup codes now/i)).toBeVisible({ timeout: 20_000 });
+    // A scannable QR, not a collapsed one — it rendered at 26px the first time,
+    // because `scalable: true` omits width/height.
+    const qrBox = await page.locator("svg").last().boundingBox();
+    expect(qrBox?.width ?? 0, "the QR must be big enough to scan").toBeGreaterThan(120);
+
+    // Ten backup codes, shown once.
+    await expect(page.locator("ul.numeric li")).toHaveCount(10);
+
+    // Step 2: a real code from the real secret, exactly as an app would.
+    const secret = (await page.locator("code").first().textContent())?.trim() ?? "";
+    expect(secret.length, "manual-entry key should be present").toBeGreaterThan(10);
+
+    await page.getByLabel(/6-digit code/i).fill(totp(secret));
+    await page.getByRole("button", { name: /Turn on two-factor/i }).click();
+
+    // It is actually on, and the page offers to turn it off again.
+    await expect(page.getByRole("button", { name: /Turn off two-factor/i })).toBeVisible({
+      timeout: 20_000,
+    });
+    const enabled = await page.evaluate(async () => {
+      const r = await fetch("/api/v1/me", { credentials: "same-origin" });
+      const j = (await r.json()) as { data: { twoFactorEnabled: boolean } };
+      return j.data.twoFactorEnabled;
+    });
+    expect(enabled).toBe(true);
   });
 });
 
