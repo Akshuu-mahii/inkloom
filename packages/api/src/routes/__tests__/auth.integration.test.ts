@@ -122,6 +122,35 @@ describe("signup", () => {
     expect(byType.marketing_email).toBe(false);
   });
 
+  it("acts on the marketing opt-in instead of only filing it", async () => {
+    /*
+     * The consent row and the notification preference are two records of one
+     * decision, and they were allowed to disagree: signup wrote the consent but
+     * nothing carried the answer onto the preferences row, which Better Auth's
+     * create hook had already inserted with `marketing_email` false. Since the
+     * mailer gates on the PREFERENCE, ticking the box did nothing at all.
+     *
+     * It failed safe — no unwanted mail — which is why nobody noticed. Both
+     * directions are asserted, because a fix that just forced it true would be
+     * the far more damaging bug.
+     */
+    for (const optedIn of [true, false]) {
+      await app.reset();
+      await signup({ email: `optin-${optedIn}@example.test`, marketingOptIn: optedIn });
+
+      const row = await app.db.db.execute<{ consent: boolean; preference: boolean }>(
+        sql`SELECT c.granted AS consent, n.marketing_email AS preference
+              FROM users u
+              JOIN user_consents c ON c.user_id = u.id AND c.type = 'marketing_email'
+              JOIN notification_preferences n ON n.user_id = u.id
+             WHERE u.email = ${`optin-${optedIn}@example.test`}`,
+      );
+
+      expect(row.rows[0]?.consent, "the consent record").toBe(optedIn);
+      expect(row.rows[0]?.preference, "the switch the mailer actually reads").toBe(optedIn);
+    }
+  });
+
   it("refuses signup without explicit acceptance of the terms", async () => {
     const result = await signup({ acceptedTerms: false });
     expect(result.status).toBe(400);

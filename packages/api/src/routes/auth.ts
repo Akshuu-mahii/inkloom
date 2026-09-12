@@ -15,7 +15,13 @@
  */
 import { Hono } from "hono";
 import { eq, sql } from "drizzle-orm";
-import { account as accountTable, newId, user as userTable, userConsent } from "@inkloom/db";
+import {
+  account as accountTable,
+  newId,
+  notificationPreference,
+  user as userTable,
+  userConsent,
+} from "@inkloom/db";
 import { loginNeedsChallenge } from "@inkloom/core/rate-limit";
 import { safeRedirectPath } from "@inkloom/core/security";
 import { templates } from "@inkloom/email";
@@ -166,6 +172,28 @@ authRoutes.post(
           createdAt: consentedAt,
         })),
       );
+
+      /*
+       * Act on the marketing consent, don't just file it.
+       *
+       * Better Auth's `user.create.after` hook inserts the preferences row with
+       * schema defaults, and `marketing_email` defaults to false. Nothing then
+       * carried the answer from the signup form onto it — so someone who ticked
+       * the box got a consent record saying "granted" and a preferences row
+       * saying "off", and the mailer gates on the preferences row. The opt-in
+       * did nothing.
+       *
+       * It failed in the safe direction, which is why it was invisible: no
+       * unwanted mail, just a checkbox that quietly meant nothing and two
+       * records of the same decision that disagreed with each other.
+       *
+       * Written unconditionally rather than only when true, so the preferences
+       * row always states what the person actually chose.
+       */
+      await db
+        .update(notificationPreference)
+        .set({ marketingEmail: input.marketingOptIn, updatedAt: new Date() })
+        .where(eq(notificationPreference.userId, createdUserId));
 
       // First-touch attribution. Never contains PII.
       if (input.utm) {
