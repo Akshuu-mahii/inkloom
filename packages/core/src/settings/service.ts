@@ -1,10 +1,27 @@
 /**
  * Reads and writes feature flags and system settings.
  *
- * Values are cached per isolate for a few seconds. That bound matters: an
- * emergency control (pause signups, mass logout) must take effect quickly, so
- * the TTL is short enough to be operationally useful while still absorbing the
- * per-request read volume.
+ * Values are cached for a few seconds. That bound matters: an emergency control
+ * (pause signups, mass logout) must take effect quickly, so the TTL is short
+ * enough to be operationally useful while still absorbing the per-request read
+ * volume.
+ *
+ * THE CACHE IS MODULE-LEVEL, NOT PER INSTANCE, and that is the whole point.
+ *
+ * It used to be an instance field, while `buildServices` — despite a comment
+ * saying "once per isolate" — runs inside the Worker's `fetch`, because it
+ * takes the per-request database handle. So a fresh SettingsService, and a
+ * fresh empty cache, was built and discarded on every request: the cache
+ * existed, cost a Map allocation, and never once served a hit across requests.
+ * Every request that read a flag, and every rate-limited request reading the
+ * override setting, paid a database round trip the design had already decided
+ * it should not.
+ *
+ * Module scope is per isolate, which is the correct lifetime: these are global
+ * operator settings, identical for every caller, so there is nothing
+ * user-specific to leak between requests that share one. `invalidate()` clears
+ * it, which is what keeps a writer seeing their own change and what keeps tests
+ * isolated from one another.
  */
 import { eq } from "drizzle-orm";
 import type { Database, Executor } from "@inkloom/db/client";
@@ -27,10 +44,10 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
-export class SettingsService {
-  private flagCache = new Map<string, CacheEntry<boolean>>();
-  private settingCache = new Map<string, CacheEntry<unknown>>();
+const flagCache = new Map<string, CacheEntry<boolean>>();
+const settingCache = new Map<string, CacheEntry<unknown>>();
 
+export class SettingsService {
   constructor(
     private readonly db: Database,
     private readonly logger: Logger,
@@ -38,12 +55,12 @@ export class SettingsService {
 
   /** Drop caches immediately after a write, so the writer sees their own change. */
   invalidate(): void {
-    this.flagCache.clear();
-    this.settingCache.clear();
+    flagCache.clear();
+    settingCache.clear();
   }
 
   async isEnabled(key: FeatureFlagKey): Promise<boolean> {
-    const cached = this.flagCache.get(key);
+    const cached = flagCache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.value;
 
     const row = await this.db.query.featureFlag.findFirst({ where: eq(featureFlag.key, key) });
@@ -52,7 +69,7 @@ export class SettingsService {
     // accidentally expose unbuilt functionality.
     const value = row?.enabled ?? FEATURE_FLAGS[key].default;
 
-    this.flagCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+    flagCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
     return value;
   }
 
@@ -91,7 +108,7 @@ export class SettingsService {
   }
 
   async get<K extends SystemSettingKey>(key: K): Promise<(typeof SYSTEM_SETTINGS)[K]["default"]> {
-    const cached = this.settingCache.get(key);
+    const cached = settingCache.get(key);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.value as (typeof SYSTEM_SETTINGS)[K]["default"];
     }
@@ -111,7 +128,7 @@ export class SettingsService {
       }
     }
 
-    this.settingCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+    settingCache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
     return value as (typeof SYSTEM_SETTINGS)[K]["default"];
   }
 

@@ -83,13 +83,39 @@ export interface BuildServicesOptions {
 }
 
 /**
- * Construct every service once per isolate.
+ * Construct the services for one request.
  *
- * Config validation happens here, so a Worker with a bad or placeholder secret
- * fails at construction rather than serving traffic in a broken state.
+ * Called from the Worker's `fetch`, and it has to be: it takes the per-request
+ * database handle, and a Worker may not carry a socket between request
+ * contexts. An earlier comment here claimed "once per isolate", which was the
+ * intent and never the behaviour — worth stating plainly, because the gap
+ * between the two was quietly costing a database round trip per request.
+ *
+ * What IS shared across requests in an isolate is everything that does not
+ * depend on `db`: the parsed configuration, memoised below, and the settings
+ * cache, which now lives at module scope in SettingsService.
+ *
+ * Config validation still happens on the first call, so a Worker with a bad or
+ * placeholder secret fails before it serves traffic.
  */
+const configCache = new WeakMap<object, AppConfig>();
+
+function cachedConfig(env: Record<string, unknown>): AppConfig {
+  /*
+   * Keyed on the env object itself, which Workers hand back by identity for the
+   * life of an isolate. A WeakMap rather than a module variable so tests that
+   * build services with different environments do not see one another's config,
+   * and so nothing is retained once an env object is gone.
+   */
+  const hit = configCache.get(env);
+  if (hit) return hit;
+  const parsed = loadConfig(env);
+  configCache.set(env, parsed);
+  return parsed;
+}
+
 export function buildServices(options: BuildServicesOptions): Services {
-  const config = loadConfig(options.env);
+  const config = cachedConfig(options.env);
 
   const logger =
     options.logger ??

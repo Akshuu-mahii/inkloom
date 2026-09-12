@@ -32,6 +32,7 @@
     "codes:create": "tsx scripts/create-campaign.ts",
     "openapi:emit": "tsx scripts/emit-openapi.ts",
     "secrets:check": "tsx scripts/check-secrets.ts",
+    "retention:sweep": "tsx scripts/run-retention-sweep.ts",
     "email:test": "tsx scripts/send-test-email.ts",
     "mail:relay": "tsx scripts/setup-mail-relay.ts",
     "up": "docker compose up -d --wait",

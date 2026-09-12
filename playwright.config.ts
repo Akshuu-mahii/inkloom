@@ -22,6 +22,9 @@ export default defineConfig({
   // Raises rate limits through the product's own override setting so the suite
   // does not spend its run being throttled by the limiter it shares with prod.
   globalSetup: "./e2e/global-setup.ts",
+  // ...and puts them back, pass or fail. Without this the raised limits stayed
+  // in the database after the run and quietly disarmed the abuse controls.
+  globalTeardown: "./e2e/global-teardown.ts",
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,

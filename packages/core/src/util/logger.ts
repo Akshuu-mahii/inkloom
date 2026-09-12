@@ -109,6 +109,8 @@ export interface LoggerContext {
   userId?: string;
   route?: string;
   method?: string;
+  /** The cron expression, on a scheduled invocation. There is no route then. */
+  cron?: string;
   env?: string;
   release?: string;
 }

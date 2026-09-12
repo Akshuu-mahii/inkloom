@@ -140,13 +140,22 @@ authRoutes.post(
       // Record consent as an auditable, timestamped fact rather than a boolean
       // on the user row: "what did they agree to, and when" must be answerable
       // for any point in time.
-      const consents = [
-        { type: "terms" as const, granted: true },
-        { type: "privacy" as const, granted: true },
-        { type: "marketing_email" as const, granted: input.marketingOptIn },
-      ];
-      for (const consent of consents) {
-        await db.insert(userConsent).values({
+      //
+      // One statement, not three. Written as a loop of separate inserts it cost
+      // three round trips of the twenty a signup takes, for three rows that are
+      // always written together and are meaningless apart — if the privacy
+      // consent were to fail after the terms consent committed, the record would
+      // claim the person accepted one and not the other. A single multi-row
+      // insert is both faster and atomic.
+      const consentedAt = new Date();
+      await db.insert(userConsent).values(
+        (
+          [
+            { type: "terms", granted: true },
+            { type: "privacy", granted: true },
+            { type: "marketing_email", granted: input.marketingOptIn },
+          ] as const
+        ).map((consent) => ({
           id: newId("cns"),
           userId: createdUserId,
           type: consent.type,
@@ -154,8 +163,9 @@ authRoutes.post(
           documentVersion: "2026-09-01",
           source: "signup",
           ipHash: c.get("ipHash"),
-        });
-      }
+          createdAt: consentedAt,
+        })),
+      );
 
       // First-touch attribution. Never contains PII.
       if (input.utm) {

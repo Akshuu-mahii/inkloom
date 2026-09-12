@@ -17,6 +17,20 @@
 
   "observability": { "enabled": true, "head_sampling_rate": 1 },
 
+  /*
+   * Retention sweep.
+   *
+   * 03:20 UTC daily — off the hour, because every cron on the platform fires at
+   * :00 and a sweep has no reason to queue behind them. Nothing else enforces
+   * the retention periods published at /privacy, so if this trigger is missing
+   * the policy is simply not kept.
+   *
+   * Cron triggers are per-environment in Cloudflare and are NOT inherited from
+   * this top-level block, which is why staging and production each declare
+   * their own below.
+   */
+  "triggers": { "crons": ["20 3 * * *"] },
+
   // Hyperdrive pools Postgres connections at Cloudflare's edge.
   //
   // It is used in EVERY environment, not just production, for one specific
@@ -82,6 +96,8 @@
       // A SEPARATE Neon branch from production. Sharing one would put real
       // user data in a test environment.
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "REPLACE_WITH_STAGING_HYPERDRIVE_ID" }],
+      // Cron triggers are not inherited from the top-level block.
+      "triggers": { "crons": ["20 3 * * *"] },
       "routes": [{ "pattern": "staging.inkloom.com", "custom_domain": true }],
     },
 
@@ -101,6 +117,8 @@
         "SENTRY_ENVIRONMENT": "production",
       },
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "REPLACE_WITH_PRODUCTION_HYPERDRIVE_ID" }],
+      // Cron triggers are not inherited from the top-level block.
+      "triggers": { "crons": ["20 3 * * *"] },
       "routes": [{ "pattern": "inkloom.com", "custom_domain": true }],
     },
   },

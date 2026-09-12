@@ -15,13 +15,40 @@
  *     blocking still happens.
  *
  * It also refuses to touch anything that is not obviously a local database.
+ *
+ * WHAT IT PUTS BACK
+ * -----------------
+ * Whatever `rate_limit_overrides` held before the run is written to
+ * `OVERRIDE_BACKUP` and restored by `global-teardown.ts`, including the case
+ * where it held nothing — then the row is removed again rather than left at the
+ * test values.
+ *
+ * That teardown was missing for a long time and the consequence was not
+ * theoretical: a developer database was found sitting at 500 signups per hour
+ * per IP instead of 5, weeks after the run that raised it, because the suite
+ * loosened the limiter and nothing ever tightened it again. Manual testing
+ * after any run was therefore happening against abuse controls that were
+ * effectively off. The limits are a security control; a test must hand them
+ * back exactly as it found them.
  */
 import { config } from "dotenv";
 import pg from "pg";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 config({ path: ".env", quiet: true });
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "postgres"]);
+export const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "postgres"]);
+
+/**
+ * Where the pre-run value of `rate_limit_overrides` is parked.
+ *
+ * A file rather than another settings row: the teardown has to be able to tell
+ * "there was no override before" from "the override was empty", and a row that
+ * itself needs cleaning up is the problem this is meant to solve.
+ */
+export const OVERRIDE_BACKUP = path.join(os.tmpdir(), "inkloom-e2e-rate-limit-backup.json");
 
 /** Generous enough for a whole suite; still finite. */
 const E2E_OVERRIDES = {
@@ -55,6 +82,19 @@ export default async function globalSetup() {
   try {
     // Start from a clean slate so a previous run's counters do not carry over.
     await client.query("DELETE FROM rate_limit_events");
+
+    /*
+     * Save whatever is there before touching it. `rows[0]` being undefined is a
+     * meaningful state, not an error: it means no override existed, and the
+     * teardown must then delete the row rather than restore an empty object.
+     */
+    const existing = await client.query(
+      "SELECT value FROM system_settings WHERE key = 'rate_limit_overrides'",
+    );
+    fs.writeFileSync(
+      OVERRIDE_BACKUP,
+      JSON.stringify({ existed: existing.rowCount > 0, value: existing.rows[0]?.value ?? null }),
+    );
 
     await client.query(
       `INSERT INTO system_settings (id, key, value, description, high_risk)

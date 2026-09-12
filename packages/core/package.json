@@ -18,7 +18,8 @@
     "./settings": "./src/settings/index.ts",
     "./support": "./src/support/index.ts",
     "./analytics": "./src/analytics/index.ts",
-    "./notifications": "./src/notifications/index.ts"
+    "./notifications": "./src/notifications/index.ts",
+    "./retention": "./src/retention/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
