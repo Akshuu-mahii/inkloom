@@ -28,7 +28,9 @@
  * the p95 of anything. Bucket counts add, so the merged histogram is exact and
  * the percentile is computed from it at read time.
  */
-import { LATENCY_BUCKETS_MS } from "@inkloom/db";
+import { bucketFor } from "./buckets";
+
+export { bucketFor };
 
 export interface RequestSample {
   routeGroup: string;
@@ -71,14 +73,6 @@ const FLUSH_AT_SLOTS = 64;
 
 function slotKey(day: string, hour: number, routeGroup: string): string {
   return `${day}|${hour}|${routeGroup}`;
-}
-
-/** Which bucket a duration falls in. Returns "inf" beyond the last bound. */
-export function bucketFor(durationMs: number): string {
-  for (const bound of LATENCY_BUCKETS_MS) {
-    if (durationMs <= bound) return String(bound);
-  }
-  return "inf";
 }
 
 /**

@@ -34,15 +34,13 @@ import { createdAt, tsCol, updatedAt } from "./_shared";
  * are read back off the merged histogram.
  */
 
-/**
- * Upper bounds in milliseconds for the latency histogram, plus an overflow.
+/*
+ * The latency bucket bounds live in `@inkloom/core/metrics`, not here.
  *
- * Chosen around what this application actually does: a marketing page render
- * lands near 15ms and a signup near 100ms, so the resolution is concentrated
- * between 10 and 250 where the interesting movement is. A change from 90ms to
- * 240ms is visible here; it would not be in evenly spaced buckets.
+ * They are needed by the BROWSER — the console renders percentiles from these
+ * histograms — and anything exported from this package drags the whole Drizzle
+ * schema and the Postgres client along with it into the client bundle.
  */
-export const LATENCY_BUCKETS_MS = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000] as const;
 
 /**
  * Request volume, outcome and latency, by hour.

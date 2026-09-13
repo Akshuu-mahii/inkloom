@@ -20,7 +20,8 @@
     "./analytics": "./src/analytics/index.ts",
     "./notifications": "./src/notifications/index.ts",
     "./retention": "./src/retention/index.ts",
-    "./telemetry": "./src/telemetry/index.ts"
+    "./telemetry": "./src/telemetry/index.ts",
+    "./metrics": "./src/telemetry/buckets.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

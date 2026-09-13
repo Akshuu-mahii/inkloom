@@ -6,7 +6,7 @@
  * SVG on purpose: a charting library would be the single largest dependency in
  * the bundle, for four simple shapes, on a page only one person ever opens.
  */
-import { percentileFrom } from "@inkloom/core/telemetry";
+import { percentileFrom } from "@inkloom/core/metrics";
 
 export interface DailyRow {
   day: string;

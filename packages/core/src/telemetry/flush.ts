@@ -16,6 +16,10 @@ import { newId } from "@inkloom/db";
 import type { Logger } from "../util/logger";
 import { drain, shouldFlush, type MetricSlot } from "./collector";
 
+// Re-exported so server callers keep one import; the implementation is pure and
+// lives in ./buckets so the browser can use it without dragging the database in.
+export { percentileFrom } from "./buckets";
+
 /**
  * Add two `{bucket: count}` maps inside Postgres.
  *
@@ -99,29 +103,4 @@ export async function flushIfDue(db: Database, logger: Logger, eager = false): P
 
   if (written > 0) logger.debug("metrics_flushed", { slots: written });
   return written;
-}
-
-/**
- * Read p50/p95/p99 back out of merged bucket counts.
- *
- * Returns the UPPER BOUND of the bucket the percentile falls in, which is a
- * deliberate over-estimate rather than an interpolation. Interpolating between
- * bounds invents precision the data does not contain; "p95 is at or under
- * 250ms" is a statement that is actually true.
- */
-export function percentileFrom(buckets: Record<string, number>, percentile: number): number | null {
-  const total = Object.values(buckets).reduce((sum, n) => sum + n, 0);
-  if (total === 0) return null;
-
-  const ordered = Object.entries(buckets)
-    .map(([bound, count]) => ({ bound: bound === "inf" ? Infinity : Number(bound), count }))
-    .sort((a, b) => a.bound - b.bound);
-
-  const target = total * percentile;
-  let seen = 0;
-  for (const { bound, count } of ordered) {
-    seen += count;
-    if (seen >= target) return bound === Infinity ? -1 : bound;
-  }
-  return -1;
 }
