@@ -1443,3 +1443,129 @@ function serialiseSecurityEvent(e: typeof securityEvent.$inferSelect) {
     metadata: e.metadata,
   };
 }
+
+// ===========================================================================
+// Activity, performance and infrastructure
+// ===========================================================================
+
+/**
+ * Everything the console's analytical pages read, in one endpoint.
+ *
+ * One request rather than four because these pages are opened together and
+ * every figure comes from a pre-aggregated table — the whole response is a
+ * handful of indexed reads over at most a few hundred rows. Splitting it would
+ * multiply the round trips this console already makes without making any single
+ * page faster.
+ *
+ * `days` is clamped rather than validated-and-rejected: an operator typing an
+ * absurd range should get the largest sensible answer, not an error.
+ */
+adminRoutes.get("/insights", requirePermission("admin.overview.read"), async (c) => {
+  const { db } = c.get("services");
+  const days = Math.min(Math.max(Number(c.req.query("days") ?? 30), 1), 90);
+  const since = new Date(Date.now() - days * 86_400_000);
+  const sinceDay = since.toISOString().slice(0, 10);
+
+  const [daily, hourly, byGroup, todayLive, providers] = await Promise.all([
+    // The roll-up, oldest first so a chart can render it directly.
+    db.execute<Record<string, string | null>>(sql`
+      SELECT * FROM daily_metrics WHERE day >= ${sinceDay}::date ORDER BY day ASC
+    `),
+
+    /*
+     * Traffic by hour of day, summed across the window.
+     *
+     * This is the "when are people actually using this" answer, and it has to
+     * be summed across days rather than read from one — a single day's shape is
+     * noise at early-access volume.
+     */
+    db.execute<{ hour: number; requests: string }>(sql`
+      SELECT hour, SUM(requests)::text AS requests
+        FROM request_metrics
+       WHERE day >= ${sinceDay}::date
+       GROUP BY hour ORDER BY hour
+    `),
+
+    // Volume, outcome and merged latency histogram per route group.
+    db.execute<Record<string, unknown>>(sql`
+      SELECT
+        route_group,
+        SUM(requests)::int          AS requests,
+        SUM(status_2xx)::int        AS status_2xx,
+        SUM(status_4xx)::int        AS status_4xx,
+        SUM(status_429)::int        AS status_429,
+        SUM(status_5xx)::int        AS status_5xx,
+        SUM(duration_ms_total)::int AS duration_ms_total,
+        MAX(duration_ms_max)::int   AS duration_ms_max,
+        (
+          SELECT COALESCE(jsonb_object_agg(k, v), '{}'::jsonb)
+          FROM (
+            SELECT key AS k, SUM(value::text::int)::int AS v
+              FROM request_metrics rm2, jsonb_each(rm2.latency_buckets)
+             WHERE rm2.route_group = rm.route_group AND rm2.day >= ${sinceDay}::date
+             GROUP BY key
+          ) merged
+        ) AS latency_buckets,
+        (
+          SELECT COALESCE(jsonb_object_agg(k, v), '{}'::jsonb)
+          FROM (
+            SELECT key AS k, SUM(value::text::int)::int AS v
+              FROM request_metrics rm3, jsonb_each(rm3.error_codes)
+             WHERE rm3.route_group = rm.route_group AND rm3.day >= ${sinceDay}::date
+             GROUP BY key
+          ) merged
+        ) AS error_codes
+      FROM request_metrics rm
+      WHERE day >= ${sinceDay}::date
+      GROUP BY route_group
+      ORDER BY requests DESC
+    `),
+
+    /*
+     * Today, computed live rather than read from the roll-up.
+     *
+     * The roll-up only covers days that have ENDED, so without this the console
+     * would show nothing at all for the current day and look broken every
+     * morning. These are the same definitions the roll-up uses.
+     */
+    db.execute<Record<string, string>>(sql`
+      SELECT
+        (SELECT COUNT(*) FROM users WHERE created_at >= CURRENT_DATE)                       AS signups,
+        (SELECT COUNT(DISTINCT user_id) FROM sessions WHERE last_active_at >= CURRENT_DATE) AS dau,
+        (SELECT COUNT(*) FROM security_events
+          WHERE type = 'login_succeeded' AND created_at >= CURRENT_DATE)                    AS logins,
+        (SELECT COUNT(*) FROM email_events WHERE created_at >= CURRENT_DATE)                AS emails_sent,
+        (SELECT COUNT(*) FROM email_events
+          WHERE status IN ('failed','bounced') AND created_at >= CURRENT_DATE)              AS emails_failed,
+        (SELECT COALESCE(SUM(requests),0) FROM request_metrics WHERE day = CURRENT_DATE)    AS requests,
+        (SELECT COALESCE(SUM(status_5xx),0) FROM request_metrics WHERE day = CURRENT_DATE)  AS errors
+    `),
+
+    // Latest reading per provider metric. DISTINCT ON keeps one row each.
+    db.execute<Record<string, string | null>>(sql`
+      SELECT DISTINCT ON (provider, metric) provider, metric, value, unit, allowance, day, captured_at
+        FROM provider_metrics
+       ORDER BY provider, metric, day DESC
+    `),
+  ]);
+
+  const live = todayLive.rows[0] ?? {};
+  const n = (key: string) => Number(live[key] ?? 0);
+
+  return ok(c, {
+    windowDays: days,
+    daily: daily.rows,
+    hourly: hourly.rows.map((r) => ({ hour: Number(r.hour), requests: Number(r.requests) })),
+    routeGroups: byGroup.rows,
+    today: {
+      signups: n("signups"),
+      dau: n("dau"),
+      logins: n("logins"),
+      emailsSent: n("emails_sent"),
+      emailsFailed: n("emails_failed"),
+      requests: n("requests"),
+      errors: n("errors"),
+    },
+    providers: providers.rows,
+  });
+});
