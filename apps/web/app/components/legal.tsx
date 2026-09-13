@@ -134,4 +134,4 @@ export function LegalDocument({
 /** Shared across the documents so a change lands in all four. */
 export const LEGAL_UPDATED = "2026-09-01";
 export const LEGAL_ENTITY = "Inkloom";
-export const LEGAL_CONTACT = "support@inkloom.com";
+export const LEGAL_CONTACT = "support@inkloom.art";

@@ -40,7 +40,7 @@ describe("isUndeliverableTestAddress", () => {
 
   it.each([
     "mayank@gmail.com",
-    "someone@inkloom.com",
+    "someone@inkloom.art",
     "person@company.co.uk",
     // Deliberately adversarial: a real domain that merely CONTAINS a reserved
     // string must not be mistaken for one.

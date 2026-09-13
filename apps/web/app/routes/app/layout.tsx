@@ -126,7 +126,7 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
         the page you were already on.
       */}
       <footer className="app-foot">
-        <Link to="/">Back to inkloom.com</Link>
+        <Link to="/">Back to inkloom.art</Link>
         <span aria-hidden="true">·</span>
         <Link to="/terms">Terms</Link>
         <span aria-hidden="true">·</span>

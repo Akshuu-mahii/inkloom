@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { checkOrigin, isAcceptableContentType, isSafeMethod } from "../origin";
 
-const APP = "https://inkloom.com";
+const APP = "https://inkloom.art";
 
 describe("checkOrigin", () => {
   it("allows safe methods without an Origin header", () => {
@@ -33,10 +33,10 @@ describe("checkOrigin", () => {
     // Suffix tricks, scheme downgrade, an extra subdomain and a port change are
     // all distinct origins and must all be refused.
     for (const hostile of [
-      "https://inkloom.com.evil.example",
-      "http://inkloom.com",
-      "https://www.inkloom.com",
-      "https://inkloom.com:8443",
+      "https://inkloom.art.evil.example",
+      "http://inkloom.art",
+      "https://www.inkloom.art",
+      "https://inkloom.art:8443",
       "null",
     ]) {
       expect(
@@ -90,10 +90,10 @@ describe("checkOrigin", () => {
     expect(
       checkOrigin({
         method: "POST",
-        origin: "https://staging.inkloom.com",
+        origin: "https://staging.inkloom.art",
         referer: null,
         allowedOrigin: APP,
-        additionalOrigins: ["https://staging.inkloom.com"],
+        additionalOrigins: ["https://staging.inkloom.art"],
       }),
     ).toEqual({ ok: true });
   });

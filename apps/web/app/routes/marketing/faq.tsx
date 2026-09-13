@@ -22,7 +22,7 @@ const MORE = [
   },
   {
     q: "How do I delete my account?",
-    a: "Email support@inkloom.com and we will do it for you. Deletion removes your personal data and ends every session, and any credits are forfeited; we keep an anonymised accounting record of grants because we are required to, with nothing personal attached.",
+    a: "Email support@inkloom.art and we will do it for you. Deletion removes your personal data and ends every session, and any credits are forfeited; we keep an anonymised accounting record of grants because we are required to, with nothing personal attached.",
   },
   {
     q: "Is there an API?",
@@ -30,7 +30,7 @@ const MORE = [
   },
   {
     q: "I found a security problem. Who do I tell?",
-    a: "Please report it to security@inkloom.com. We will acknowledge it, and we will not take action against anyone reporting in good faith.",
+    a: "Please report it to security@inkloom.art. We will acknowledge it, and we will not take action against anyone reporting in good faith.",
   },
 ];
 

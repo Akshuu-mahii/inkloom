@@ -27,7 +27,7 @@ jobs:
     if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
     environment:
       name: staging
-      url: https://staging.inkloom.com
+      url: https://staging.inkloom.art
 
     steps:
       - uses: actions/checkout@v4
@@ -59,7 +59,7 @@ jobs:
       - name: Health check
         run: |
           for attempt in $(seq 1 10); do
-            if curl -fsS https://staging.inkloom.com/api/ready | grep -q '"status":"ready"'; then
+            if curl -fsS https://staging.inkloom.art/api/ready | grep -q '"status":"ready"'; then
               echo "Staging is ready."
               exit 0
             fi
@@ -71,7 +71,7 @@ jobs:
 
       - name: Post-deploy smoke test
         env:
-          E2E_BASE_URL: https://staging.inkloom.com
+          E2E_BASE_URL: https://staging.inkloom.art
         run: |
           pnpm exec playwright install --with-deps chromium
           # Read-only journeys only: this runs against a shared environment, so
@@ -90,7 +90,7 @@ jobs:
     if: github.event.inputs.environment == 'production'
     environment:
       name: production
-      url: https://inkloom.com
+      url: https://inkloom.art
 
     steps:
       - uses: actions/checkout@v4
@@ -136,7 +136,7 @@ jobs:
       - name: Health check
         run: |
           for attempt in $(seq 1 12); do
-            if curl -fsS https://inkloom.com/api/ready | grep -q '"status":"ready"'; then
+            if curl -fsS https://inkloom.art/api/ready | grep -q '"status":"ready"'; then
               echo "Production is ready."
               exit 0
             fi
@@ -147,7 +147,7 @@ jobs:
 
       - name: Post-deploy smoke test
         env:
-          E2E_BASE_URL: https://inkloom.com
+          E2E_BASE_URL: https://inkloom.art
         run: |
           pnpm exec playwright install --with-deps chromium
           pnpm exec playwright test e2e/marketing.spec.ts --project=chromium

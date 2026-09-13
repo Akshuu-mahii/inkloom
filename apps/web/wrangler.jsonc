@@ -66,9 +66,9 @@
     "APP_URL": "http://localhost:5173",
     "EMAIL_TRANSPORT": "mailpit",
     "MAILPIT_HOST": "127.0.0.1",
-    "EMAIL_FROM": "Inkloom <no-reply@mail.inkloom.com>",
-    "EMAIL_REPLY_TO": "support@inkloom.com",
-    "SUPPORT_EMAIL": "support@inkloom.com",
+    "EMAIL_FROM": "Inkloom <no-reply@mail.inkloom.art>",
+    "EMAIL_REPLY_TO": "support@inkloom.art",
+    "SUPPORT_EMAIL": "support@inkloom.art",
     // ADMIN_PATH and OWNER_EMAIL are deployment secrets set with
     // `wrangler secret put`, NOT here. ADMIN_PATH must ALSO be present in the
     // build environment — the route table bakes it in so the console's links
@@ -86,11 +86,11 @@
       "name": "inkloom-staging",
       "vars": {
         "INKLOOM_ENV": "staging",
-        "APP_URL": "https://staging.inkloom.com",
+        "APP_URL": "https://staging.inkloom.art",
         "EMAIL_TRANSPORT": "resend",
-        "EMAIL_FROM": "Inkloom (staging) <no-reply@mail-staging.inkloom.com>",
-        "EMAIL_REPLY_TO": "support@inkloom.com",
-        "SUPPORT_EMAIL": "support@inkloom.com",
+        "EMAIL_FROM": "Inkloom (staging) <no-reply@mail-staging.inkloom.art>",
+        "EMAIL_REPLY_TO": "support@inkloom.art",
+        "SUPPORT_EMAIL": "support@inkloom.art",
         "TURNSTILE_ENABLED": "true",
         "RATE_LIMIT_ENABLED": "true",
         "ANALYTICS_ENABLED": "true",
@@ -102,18 +102,18 @@
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "REPLACE_WITH_STAGING_HYPERDRIVE_ID" }],
       // Cron triggers are not inherited from the top-level block.
       "triggers": { "crons": ["20 3 * * *"] },
-      "routes": [{ "pattern": "staging.inkloom.com", "custom_domain": true }],
+      "routes": [{ "pattern": "staging.inkloom.art", "custom_domain": true }],
     },
 
     "production": {
       "name": "inkloom-production",
       "vars": {
         "INKLOOM_ENV": "production",
-        "APP_URL": "https://inkloom.com",
+        "APP_URL": "https://inkloom.art",
         "EMAIL_TRANSPORT": "resend",
-        "EMAIL_FROM": "Inkloom <no-reply@mail.inkloom.com>",
-        "EMAIL_REPLY_TO": "support@inkloom.com",
-        "SUPPORT_EMAIL": "support@inkloom.com",
+        "EMAIL_FROM": "Inkloom <no-reply@mail.inkloom.art>",
+        "EMAIL_REPLY_TO": "support@inkloom.art",
+        "SUPPORT_EMAIL": "support@inkloom.art",
         "TURNSTILE_ENABLED": "true",
         "RATE_LIMIT_ENABLED": "true",
         "ANALYTICS_ENABLED": "true",
@@ -123,7 +123,7 @@
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "REPLACE_WITH_PRODUCTION_HYPERDRIVE_ID" }],
       // Cron triggers are not inherited from the top-level block.
       "triggers": { "crons": ["20 3 * * *"] },
-      "routes": [{ "pattern": "inkloom.com", "custom_domain": true }],
+      "routes": [{ "pattern": "inkloom.art", "custom_domain": true }],
     },
   },
 }

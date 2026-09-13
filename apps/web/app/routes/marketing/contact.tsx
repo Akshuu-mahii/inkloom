@@ -119,7 +119,7 @@ export default function Contact({ loaderData }: Route.ComponentProps) {
             <div>
               <dt>Security reports</dt>
               <dd>
-                <a href="mailto:security@inkloom.com">security@inkloom.com</a>
+                <a href="mailto:security@inkloom.art">security@inkloom.art</a>
               </dd>
             </div>
             <div>

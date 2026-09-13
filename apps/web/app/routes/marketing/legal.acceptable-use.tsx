@@ -48,7 +48,7 @@ export default function AcceptableUse() {
         {
           heading: "Reporting a security problem is not a breach",
           paragraphs: [
-            "Good-faith security research is welcome and explicitly permitted. Stay within your own account, do not access anyone else's data, give us reasonable time before disclosing, and email security@inkloom.com. We will not pursue action against anyone who does that.",
+            "Good-faith security research is welcome and explicitly permitted. Stay within your own account, do not access anyone else's data, give us reasonable time before disclosing, and email security@inkloom.art. We will not pursue action against anyone who does that.",
           ],
         },
         {
@@ -61,7 +61,7 @@ export default function AcceptableUse() {
         {
           heading: "Reporting a violation",
           paragraphs: [
-            "If you see something that breaks these rules, tell us through the contact form or at support@inkloom.com.",
+            "If you see something that breaks these rules, tell us through the contact form or at support@inkloom.art.",
           ],
         },
       ]}

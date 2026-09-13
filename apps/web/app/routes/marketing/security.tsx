@@ -167,7 +167,7 @@ export default function SecurityPage() {
         >
           <h2 style={{ fontSize: "var(--text-h3)" }}>Reporting a vulnerability</h2>
           <p style={{ marginTop: "1rem", color: "var(--color-muted)" }}>
-            Email <a href="mailto:security@inkloom.com">security@inkloom.com</a> with enough detail
+            Email <a href="mailto:security@inkloom.art">security@inkloom.art</a> with enough detail
             to reproduce it. We will acknowledge within two working days and keep you updated.
           </p>
           <p style={{ marginTop: "0.75rem", color: "var(--color-muted)" }}>

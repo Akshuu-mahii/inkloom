@@ -4,7 +4,7 @@
  * Auth flows carry a `next` parameter so a user lands where they intended after
  * signing in. Reflecting that value unchecked is a classic phishing primitive:
  * `/auth/login?next=https://evil.example` produces a link that genuinely starts
- * on inkloom.com and ends somewhere else.
+ * on inkloom.art and ends somewhere else.
  *
  * Only same-site, absolute PATHS are permitted — never absolute URLs, never
  * protocol-relative, never anything that could resolve off-origin.

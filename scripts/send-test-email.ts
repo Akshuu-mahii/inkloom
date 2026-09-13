@@ -77,9 +77,9 @@ async function main() {
   }
 
   const kind = optional("EMAIL_TRANSPORT", "console");
-  const from = optional("EMAIL_FROM", "Inkloom <no-reply@mail.inkloom.com>");
+  const from = optional("EMAIL_FROM", "Inkloom <no-reply@mail.inkloom.art>");
   const appUrl = optional("APP_URL", "http://localhost:5173");
-  const supportEmail = optional("SUPPORT_EMAIL", "support@inkloom.com");
+  const supportEmail = optional("SUPPORT_EMAIL", "support@inkloom.art");
 
   const templateName = (arg("template") ?? "verify") as keyof typeof TEMPLATES;
   const build = TEMPLATES[templateName];

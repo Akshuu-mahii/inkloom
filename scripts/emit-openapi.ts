@@ -11,7 +11,7 @@ import path from "node:path";
 import { buildOpenApiDocument } from "@inkloom/api/openapi";
 import { optional, repoRoot } from "./_env";
 
-const document = buildOpenApiDocument(optional("APP_URL", "https://inkloom.com"));
+const document = buildOpenApiDocument(optional("APP_URL", "https://inkloom.art"));
 const target = path.join(repoRoot, "openapi.json");
 
 writeFileSync(target, `${JSON.stringify(document, null, 2)}\n`);

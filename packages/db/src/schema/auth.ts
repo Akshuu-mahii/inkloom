@@ -45,7 +45,7 @@ export const user = pgTable(
     // --- Inkloom ---
     /**
      * Case-folded email. Uniqueness is enforced on THIS column, not on `email`,
-     * so `Ada@Inkloom.com` and `ada@inkloom.com` can never both exist.
+     * so `Ada@Inkloom.com` and `ada@inkloom.art` can never both exist.
      *
      * A GENERATED column, not an application-maintained one: Postgres derives it
      * from `email` on every insert and update, so it can never drift, no code

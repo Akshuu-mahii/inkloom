@@ -159,7 +159,7 @@ export function createAuth(deps: AuthDeps) {
       useSecureCookies,
       /**
        * No `crossSubDomainCookies`: the cookie must stay host-only for the
-       * `__Host-` prefix to be valid, and app.inkloom.com serving both the UI
+       * `__Host-` prefix to be valid, and app.inkloom.art serving both the UI
        * and the API means there is nothing to share it with.
        */
       cookies: {

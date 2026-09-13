@@ -4,12 +4,12 @@
 interface __BaseEnv_Env {
   HYPERDRIVE?: Hyperdrive;
   INKLOOM_ENV: "staging" | "production" | "development";
-  APP_URL: "https://staging.inkloom.com" | "https://inkloom.com" | "http://localhost:5173";
+  APP_URL: "https://staging.inkloom.art" | "https://inkloom.art" | "http://localhost:5173";
   EMAIL_TRANSPORT: "resend" | "mailpit";
   EMAIL_FROM:
-    "Inkloom (staging) <no-reply@mail-staging.inkloom.com>" | "Inkloom <no-reply@mail.inkloom.com>";
-  EMAIL_REPLY_TO: "support@inkloom.com";
-  SUPPORT_EMAIL: "support@inkloom.com";
+    "Inkloom (staging) <no-reply@mail-staging.inkloom.art>" | "Inkloom <no-reply@mail.inkloom.art>";
+  EMAIL_REPLY_TO: "support@inkloom.art";
+  SUPPORT_EMAIL: "support@inkloom.art";
   TURNSTILE_ENABLED: "true";
   RATE_LIMIT_ENABLED: "true";
   ANALYTICS_ENABLED: "true";
@@ -31,11 +31,11 @@ declare namespace Cloudflare {
   interface StagingEnv {
     HYPERDRIVE: Hyperdrive;
     INKLOOM_ENV: "staging";
-    APP_URL: "https://staging.inkloom.com";
+    APP_URL: "https://staging.inkloom.art";
     EMAIL_TRANSPORT: "resend";
-    EMAIL_FROM: "Inkloom (staging) <no-reply@mail-staging.inkloom.com>";
-    EMAIL_REPLY_TO: "support@inkloom.com";
-    SUPPORT_EMAIL: "support@inkloom.com";
+    EMAIL_FROM: "Inkloom (staging) <no-reply@mail-staging.inkloom.art>";
+    EMAIL_REPLY_TO: "support@inkloom.art";
+    SUPPORT_EMAIL: "support@inkloom.art";
     TURNSTILE_ENABLED: "true";
     RATE_LIMIT_ENABLED: "true";
     ANALYTICS_ENABLED: "true";
@@ -50,11 +50,11 @@ declare namespace Cloudflare {
   interface ProductionEnv {
     HYPERDRIVE: Hyperdrive;
     INKLOOM_ENV: "production";
-    APP_URL: "https://inkloom.com";
+    APP_URL: "https://inkloom.art";
     EMAIL_TRANSPORT: "resend";
-    EMAIL_FROM: "Inkloom <no-reply@mail.inkloom.com>";
-    EMAIL_REPLY_TO: "support@inkloom.com";
-    SUPPORT_EMAIL: "support@inkloom.com";
+    EMAIL_FROM: "Inkloom <no-reply@mail.inkloom.art>";
+    EMAIL_REPLY_TO: "support@inkloom.art";
+    SUPPORT_EMAIL: "support@inkloom.art";
     TURNSTILE_ENABLED: "true";
     RATE_LIMIT_ENABLED: "true";
     ANALYTICS_ENABLED: "true";

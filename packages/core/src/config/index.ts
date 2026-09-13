@@ -48,9 +48,9 @@ export const envSchema = z.object({
   MAILPIT_HOST: z.string().default("127.0.0.1"),
   MAILPIT_PORT: z.coerce.number().int().positive().default(1025),
   RESEND_API_KEY: z.string().optional(),
-  EMAIL_FROM: z.string().default("Inkloom <no-reply@mail.inkloom.com>"),
-  EMAIL_REPLY_TO: z.string().default("support@inkloom.com"),
-  SUPPORT_EMAIL: z.string().default("support@inkloom.com"),
+  EMAIL_FROM: z.string().default("Inkloom <no-reply@mail.inkloom.art>"),
+  EMAIL_REPLY_TO: z.string().default("support@inkloom.art"),
+  SUPPORT_EMAIL: z.string().default("support@inkloom.art"),
   /**
    * Where support submissions are actually delivered.
    *

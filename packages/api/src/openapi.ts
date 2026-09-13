@@ -94,7 +94,7 @@ const errorContent = {
   "application/json": { schema: { $ref: "#/components/schemas/ErrorEnvelope" } },
 };
 
-export function buildOpenApiDocument(origin = "https://inkloom.com") {
+export function buildOpenApiDocument(origin = "https://inkloom.art") {
   return {
     openapi: "3.1.0",
     info: {
@@ -121,14 +121,14 @@ export function buildOpenApiDocument(origin = "https://inkloom.com") {
         "`generation_enabled` and `payments_enabled` feature flags exist and are",
         "off; no endpoint here will produce a logo.",
       ].join("\n"),
-      contact: { name: "Inkloom support", email: "support@inkloom.com" },
+      contact: { name: "Inkloom support", email: "support@inkloom.art" },
       license: { name: "Proprietary" },
     },
 
     servers: [
       { url: `${origin}/api/v1`, description: "This environment" },
-      { url: "https://inkloom.com/api/v1", description: "Production" },
-      { url: "https://staging.inkloom.com/api/v1", description: "Staging" },
+      { url: "https://inkloom.art/api/v1", description: "Production" },
+      { url: "https://staging.inkloom.art/api/v1", description: "Staging" },
     ],
 
     tags: [

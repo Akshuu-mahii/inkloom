@@ -9,7 +9,7 @@
 export const SITE = {
   name: "Inkloom",
   /** Overridden per-environment at render time from config. */
-  url: "https://inkloom.com",
+  url: "https://inkloom.art",
   twitter: "@inkloom",
   description:
     "Inkloom is building specialised AI models for logo design. Join early access and reserve your free credits.",
@@ -84,7 +84,7 @@ export function organizationJsonLd(origin: string = SITE.url) {
     url: origin,
     logo: `${origin}/icon-512.png`,
     description: SITE.description,
-    email: "support@inkloom.com",
+    email: "support@inkloom.art",
     foundingDate: "2026",
     sameAs: [] as string[],
   };
