@@ -93,11 +93,17 @@ meRoutes.get("/", async (c) => {
      * Safe to return: it tells the caller only about themselves, and it is a
      * courtesy for rendering. The control is `requirePermission`, which runs
      * again on every admin request regardless of what this said.
+     *
+     * DELIBERATELY EXCLUDES 2FA, which is checked separately by the console.
+     * Folding it in here collapsed two very different people into one generic
+     * "Restricted" screen: a stranger who guessed the URL, and a legitimate
+     * owner who simply has not enrolled yet. The second has already cleared the
+     * owner and role gates — they have proved who they are — so telling them to
+     * enrol reveals nothing they do not know and is the difference between a
+     * wall and a dead end. Everyone who has NOT cleared those gates still gets
+     * the identical restricted screen, so there is no oracle.
      */
-    canAccessAdmin:
-      isAdminRole(principal.role) &&
-      principal.twoFactorEnabled &&
-      passesOwnerGate(principal, config.OWNER_EMAIL),
+    canAccessAdmin: isAdminRole(principal.role) && passesOwnerGate(principal, config.OWNER_EMAIL),
     hasPassword: linked.some((row) => row.password !== null),
     providers: linked.map((row) => row.providerId),
     createdAt: account?.createdAt ?? null,

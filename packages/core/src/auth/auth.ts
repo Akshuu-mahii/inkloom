@@ -253,6 +253,44 @@ export function createAuth(deps: AuthDeps) {
       },
     },
 
+    /**
+     * Store the password-reset token hashed, not as the usable token.
+     *
+     * A reset row's `identifier` is `reset-password:<token>` and that token is
+     * byte-for-byte the one in the email — verified by requesting a reset and
+     * comparing the link to the row. Anyone with READ access to the database
+     * could therefore paste it into the reset endpoint and take over any
+     * account that has no second factor. Passwords are salted scrypt hashes and
+     * 2FA secrets are encrypted, so this was the one credential still sitting in
+     * usable form.
+     *
+     * This is Better Auth's own mechanism rather than a patch. Every path
+     * through the internal adapter — create, find, consume, reserve and both
+     * delete paths — runs the identifier through the same transform, so hashing
+     * on write and hashing on lookup stay in step. Doing this by hand in half
+     * the flow is exactly how you end up sending a reset email the server can no
+     * longer resolve.
+     *
+     * Scoped by prefix rather than applied to everything: `default: "plain"`
+     * keeps every other verification identifier untouched, because those are
+     * addresses used for lookup rather than secrets, and hashing them would
+     * break flows that legitimately search by them.
+     *
+     * Email verification is unaffected and needs nothing: it writes no
+     * verification row at all — confirmed by signing up and finding the table
+     * empty — because that flow carries a signed token instead.
+     *
+     * ON DEPLOY: reset links already in flight stop resolving, because their
+     * stored identifiers are plaintext and lookups now hash. They expire in an
+     * hour regardless, and anyone affected can request another.
+     */
+    verification: {
+      storeIdentifier: {
+        default: "plain",
+        overrides: { "reset-password": "hashed" },
+      },
+    },
+
     emailVerification: {
       sendOnSignUp: true,
       autoSignInAfterVerification: true,

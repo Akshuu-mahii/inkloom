@@ -549,17 +549,27 @@ authRoutes.post(
        * reason is concrete: a user who requests a reset because they suspect
        * compromise must not leave a working token in an attacker's inbox.
        *
-       * Layout note: Better Auth stores these as
-       * `identifier = 'reset-password:<token>'` with `value = '<userId>'`,
-       * so the user is matched on `value`.
+       * Matched on `value` ALONE, and that is load-bearing.
+       *
+       * Better Auth stores these as `identifier = 'reset-password:<token>'`
+       * with `value = '<userId>'`. This used to filter on
+       * `identifier LIKE 'reset-password:%'` as well, which was correct until
+       * the identifier started being stored hashed — a hash does not begin with
+       * that prefix, so the clause silently matched nothing and superseded
+       * tokens stayed live. The regression test for this caught it, which is
+       * the entire reason that test exists.
+       *
+       * Matching on `value` is sufficient and stays correct whatever the
+       * identifier looks like: password reset is the only flow that writes a
+       * verification row at all here, since email verification carries a signed
+       * token and stores nothing.
        */
       const account = await db.query.user.findFirst({
         where: eq(userTable.normalizedEmail, email),
       });
       if (account) {
         await db.execute(sql`
-          DELETE FROM verification_tokens
-          WHERE identifier LIKE 'reset-password:%' AND value = ${account.id}
+          DELETE FROM verification_tokens WHERE value = ${account.id}
         `);
       }
 

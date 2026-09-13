@@ -58,7 +58,7 @@ async function enrolTwoFactor(page: Page): Promise<string> {
 }
 
 test.describe("admin access control", () => {
-  test("an ordinary user is redirected away from /admin and refused by the API", async ({
+  test("an ordinary user gets the restricted screen and is refused by the API", async ({
     page,
   }) => {
     await signUpAndVerify(page, uniqueEmail("plain"));
@@ -66,8 +66,17 @@ test.describe("admin access control", () => {
     await page.goto("/admin");
     await settled(page);
 
-    // Sent to their own dashboard rather than shown a 403.
-    await expect(page).toHaveURL(/\/app/);
+    /*
+     * A generic restricted screen, not a redirect to /app.
+     *
+     * The redirect was replaced deliberately: it confirmed to a prober that
+     * they were at least authenticated, and it differed from what a signed-out
+     * visitor saw. Signed out, ordinary user, staff-without-2FA and
+     * staff-who-are-not-the-owner now all get this same page, so the response
+     * distinguishes nothing.
+     */
+    await expect(page.getByRole("heading", { name: "Restricted" })).toBeVisible();
+    await expect(page.getByText("Audit log")).toHaveCount(0);
 
     // The API is the real control, and it refuses independently of the UI.
     const refused = await page.evaluate(async () => {
