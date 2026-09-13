@@ -16,6 +16,7 @@
  */
 import { createDb } from "@inkloom/db/client";
 import { runRetentionSweep } from "@inkloom/core/retention";
+import { captureSelfMeasuredUsage, rollUpDay } from "@inkloom/core/telemetry";
 import { createLogger } from "@inkloom/core/logger";
 import { sql } from "drizzle-orm";
 import { required } from "./_env";
@@ -52,6 +53,10 @@ async function main() {
         });
       console.log("  Rolled back. Nothing was changed.\n");
     } else {
+      // Same order as the cron: summarise the day before deleting the rows the
+      // summary counts.
+      await rollUpDay(db, logger);
+      await captureSelfMeasuredUsage(db, logger);
       const result = await runRetentionSweep(db, logger);
       report(result);
       if (result.failed > 0) process.exitCode = 1;

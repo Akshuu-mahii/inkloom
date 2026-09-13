@@ -29,7 +29,13 @@ import { buildServices, createApiApp } from "@inkloom/api";
 import { createDb } from "@inkloom/db/client";
 import { generateNonce, securityHeaders } from "@inkloom/core/security";
 import { runRetentionSweep } from "@inkloom/core/retention";
-import { flushIfDue, record as recordRequest, routeGroupFor } from "@inkloom/core/telemetry";
+import {
+  captureSelfMeasuredUsage,
+  flushIfDue,
+  record as recordRequest,
+  rollUpDay,
+  routeGroupFor,
+} from "@inkloom/core/telemetry";
 import { nonceContext, servicesContext } from "../app/lib/context";
 
 interface WorkerEnv {
@@ -250,6 +256,23 @@ export default {
     const logger = services.logger.child({ cron: event.cron });
 
     try {
+      /*
+       * Roll up BEFORE sweeping, not after.
+       *
+       * The sweep deletes expired security and analytics rows, which are the
+       * very rows the roll-up counts. Running it first would quietly understate
+       * every figure on the boundary day — a bug that produces plausible
+       * numbers, which is the worst kind. The two are sequential rather than
+       * parallel for the same reason.
+       */
+      await rollUpDay(db, logger).catch((error: unknown) => {
+        logger.error("daily_rollup_failed", { error });
+        services.monitoring.captureException(error, { extra: { job: "daily_rollup" } });
+      });
+      await captureSelfMeasuredUsage(db, logger).catch((error: unknown) => {
+        logger.error("usage_capture_failed", { error });
+      });
+
       const result = await runRetentionSweep(db, logger);
 
       /*

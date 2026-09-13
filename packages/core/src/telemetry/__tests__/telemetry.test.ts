@@ -1,28 +1,18 @@
 /**
- * Telemetry collection and merging.
+ * Telemetry collection: the pure half.
  *
- * The property that matters is that several isolates reporting the same hour
- * produce one correct total, not the last writer's partial view. Everything
- * here is written against a real Postgres because the merge happens in SQL —
- * testing it against a mock would test the mock.
+ * Bucketing, grouping, percentile arithmetic and the drain contract need no
+ * database, so they live in the `unit` project and run on every change. The
+ * merge across isolates happens in SQL and is proved in the integration file
+ * beside this one — the projects are split because the integration project
+ * disables file parallelism, and a database test running in `unit` truncates
+ * tables out from under whatever else is running at the same time.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { sql } from "drizzle-orm";
-import { connectTestDb, type TestDb } from "../../../../../tests/helpers/db";
-import { silentLogger } from "../../util/logger";
+import { beforeEach, describe, expect, it } from "vitest";
 import { bucketFor, drain, record, reset, routeGroupFor, shouldFlush } from "../collector";
-import { percentileFrom, writeSlot } from "../flush";
+import { percentileFrom } from "../flush";
 
-let t: TestDb;
-
-beforeAll(() => {
-  t = connectTestDb();
-});
-afterAll(async () => {
-  await t.close();
-});
-beforeEach(async () => {
-  await t.db.execute(sql`TRUNCATE TABLE request_metrics`);
+beforeEach(() => {
   reset();
 });
 
@@ -78,82 +68,6 @@ describe("collecting", () => {
   });
 });
 
-describe("merging partial views from several isolates", () => {
-  async function readSlot() {
-    const result = await t.db.execute<{
-      requests: number;
-      status_5xx: number;
-      duration_ms_max: number;
-      latency_buckets: Record<string, number>;
-      error_codes: Record<string, number>;
-    }>(sql`SELECT * FROM request_metrics`);
-    return result.rows[0];
-  }
-
-  const base = { day: "2026-09-13", hour: 14, routeGroup: "app" };
-
-  it("adds counters rather than replacing them", async () => {
-    // Two isolates, same hour, same group — the exact case a plain INSERT loses.
-    await writeSlot(t.db, {
-      ...base,
-      requests: 10,
-      status2xx: 9,
-      status3xx: 0,
-      status4xx: 0,
-      status429: 0,
-      status5xx: 1,
-      durationMsTotal: 500,
-      durationMsMax: 120,
-      latencyBuckets: { "50": 9, "250": 1 },
-      errorCodes: { DB_TIMEOUT: 1 },
-    });
-    await writeSlot(t.db, {
-      ...base,
-      requests: 5,
-      status2xx: 5,
-      status3xx: 0,
-      status4xx: 0,
-      status429: 0,
-      status5xx: 0,
-      durationMsTotal: 100,
-      durationMsMax: 40,
-      latencyBuckets: { "50": 4, "100": 1 },
-      errorCodes: { RATE_LIMITED: 3 },
-    });
-
-    const row = await readSlot();
-    expect(row?.requests, "one row, both isolates' traffic").toBe(15);
-    expect(row?.status_5xx).toBe(1);
-    // The max is the one figure that must not be summed.
-    expect(row?.duration_ms_max, "max is the greatest, not the total").toBe(120);
-    expect(row?.latency_buckets).toEqual({ "50": 13, "100": 1, "250": 1 });
-    expect(row?.error_codes).toEqual({ DB_TIMEOUT: 1, RATE_LIMITED: 3 });
-  });
-
-  it("keeps different hours and groups apart", async () => {
-    const slot = {
-      requests: 1,
-      status2xx: 1,
-      status3xx: 0,
-      status4xx: 0,
-      status429: 0,
-      status5xx: 0,
-      durationMsTotal: 10,
-      durationMsMax: 10,
-      latencyBuckets: { "10": 1 },
-      errorCodes: {},
-    };
-    await writeSlot(t.db, { ...slot, day: "2026-09-13", hour: 14, routeGroup: "app" });
-    await writeSlot(t.db, { ...slot, day: "2026-09-13", hour: 15, routeGroup: "app" });
-    await writeSlot(t.db, { ...slot, day: "2026-09-13", hour: 14, routeGroup: "marketing" });
-
-    const result = await t.db.execute<{ count: string }>(
-      sql`SELECT COUNT(*)::text AS count FROM request_metrics`,
-    );
-    expect(Number(result.rows[0]?.count), "three distinct slots").toBe(3);
-  });
-});
-
 describe("percentiles from merged buckets", () => {
   it("reports the bound the percentile falls under", () => {
     // 100 requests: 90 under 50ms, 9 under 250ms, 1 beyond everything.
@@ -179,7 +93,7 @@ describe("percentiles from merged buckets", () => {
 });
 
 describe("flush safety", () => {
-  it("drains so a failed write cannot double-count an hour", async () => {
+  it("drains so a failed write cannot double-count an hour", () => {
     record({ routeGroup: "app", status: 200, durationMs: 10 });
     const first = drain();
     const second = drain();
@@ -188,6 +102,5 @@ describe("flush safety", () => {
     // Losing a minute of telemetry is survivable by design. Counting it twice
     // would quietly corrupt every figure read off it afterwards.
     expect(second, "a second drain must not replay the first").toHaveLength(0);
-    expect(silentLogger).toBeDefined();
   });
 });
