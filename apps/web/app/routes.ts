@@ -96,6 +96,7 @@ export default [
       route("access-codes/:id", "routes/admin/campaign-detail.tsx"),
       route("credits", "routes/admin/credits.tsx"),
       route("activity", "routes/admin/activity.tsx"),
+      route("emails", "routes/admin/emails.tsx"),
       route("performance", "routes/admin/performance.tsx"),
       route("infrastructure", "routes/admin/infrastructure.tsx"),
       route("audit", "routes/admin/audit.tsx"),

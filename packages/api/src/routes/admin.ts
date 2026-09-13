@@ -1569,3 +1569,84 @@ adminRoutes.get("/insights", requirePermission("admin.overview.read"), async (c)
     providers: providers.rows,
   });
 });
+
+// ===========================================================================
+// Email deliverability
+// ===========================================================================
+
+/**
+ * How mail is actually doing.
+ *
+ * The most important operational question this console answers, because mail is
+ * the one failure that is INVISIBLE from the outside: a verification that never
+ * arrives looks, to the person waiting, exactly like a slow one, and the signup
+ * page has already told them it is on its way. Nothing else in the product can
+ * fail this quietly.
+ */
+adminRoutes.get("/emails", requirePermission("admin.overview.read"), async (c) => {
+  const { db } = c.get("services");
+  const days = Math.min(Math.max(Number(c.req.query("days") ?? 30), 1), 90);
+  const since = new Date(Date.now() - days * 86_400_000);
+
+  const [byTemplate, daily, failures, totals] = await Promise.all([
+    // One row per template with its outcome split, worst delivery rate first.
+    db.execute<Record<string, string>>(sql`
+      SELECT
+        template,
+        COUNT(*)::text                                                        AS total,
+        COUNT(*) FILTER (WHERE status IN ('sent','delivered'))::text          AS delivered,
+        COUNT(*) FILTER (WHERE status = 'queued')::text                       AS queued,
+        COUNT(*) FILTER (WHERE status = 'bounced')::text                      AS bounced,
+        COUNT(*) FILTER (WHERE status = 'complained')::text                   AS complained,
+        COUNT(*) FILTER (WHERE status = 'failed')::text                       AS failed
+      FROM email_events
+      WHERE created_at >= ${since}
+      GROUP BY template
+      ORDER BY COUNT(*) FILTER (WHERE status IN ('failed','bounced')) DESC, COUNT(*) DESC
+    `),
+
+    db.execute<Record<string, string>>(sql`
+      SELECT
+        created_at::date::text                                       AS day,
+        COUNT(*)::text                                               AS sent,
+        COUNT(*) FILTER (WHERE status IN ('failed','bounced'))::text AS failed
+      FROM email_events
+      WHERE created_at >= ${since}
+      GROUP BY 1 ORDER BY 1 ASC
+    `),
+
+    /*
+     * Recent failures, with the provider's own reason.
+     *
+     * The recipient address IS included, unlike in the metrics tables — this is
+     * the admin console, the caller has already passed the owner gate and 2FA,
+     * and "which address bounced" is the entire point of the screen. Every view
+     * of it is behind the same audited permission as the rest.
+     */
+    db.execute<Record<string, string | null>>(sql`
+      SELECT id, template, to_email, status, error, created_at
+        FROM email_events
+       WHERE status IN ('failed','bounced','complained') AND created_at >= ${since}
+       ORDER BY created_at DESC
+       LIMIT 50
+    `),
+
+    db.execute<Record<string, string>>(sql`
+      SELECT
+        COUNT(*)::text                                                 AS total,
+        COUNT(*) FILTER (WHERE status IN ('sent','delivered'))::text   AS delivered,
+        COUNT(*) FILTER (WHERE status IN ('failed','bounced'))::text   AS failed,
+        COUNT(*) FILTER (WHERE status = 'queued')::text                AS queued,
+        COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE)::text       AS today
+      FROM email_events WHERE created_at >= ${since}
+    `),
+  ]);
+
+  return ok(c, {
+    windowDays: days,
+    totals: totals.rows[0] ?? {},
+    byTemplate: byTemplate.rows,
+    daily: daily.rows,
+    failures: failures.rows,
+  });
+});

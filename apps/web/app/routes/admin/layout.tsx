@@ -131,6 +131,7 @@ const NAV: NavItem[] = [
   { to: "access-codes", label: "Access codes", permission: "codes.read" },
   { to: "credits", label: "Credits", permission: "credits.read" },
   { to: "activity", label: "Activity", permission: "admin.overview.read" },
+  { to: "emails", label: "Emails", permission: "admin.overview.read" },
   { to: "performance", label: "Performance", permission: "admin.overview.read" },
   { to: "infrastructure", label: "Infrastructure", permission: "admin.overview.read" },
   { to: "support", label: "Support", permission: "support.read" },
