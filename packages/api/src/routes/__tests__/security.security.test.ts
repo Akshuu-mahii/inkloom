@@ -296,6 +296,118 @@ describe("the owner gate", () => {
 });
 
 // ===========================================================================
+describe("mass assignment", () => {
+  /*
+   * The classic escalation: send fields the form never offered and hope the
+   * server writes whatever it is given. Zod strips unknown keys by default, so
+   * this holds — but "it holds because of a library default" is exactly the
+   * kind of property that disappears silently when someone adds `.passthrough()`
+   * to fix an unrelated complaint. Hence a test.
+   */
+  it("ignores privileged fields smuggled into a profile update", async () => {
+    const cookies = await signedInCookies("massassign@example.test");
+
+    const result = await app.json("/v1/me", {
+      method: "PATCH",
+      cookies,
+      body: JSON.stringify({
+        company: "Legitimate Co",
+        role: "super_admin",
+        status: "active",
+        emailVerified: true,
+        credits: 999_999,
+        balance: 999_999,
+        isAdmin: true,
+        twoFactorEnabled: false,
+      }),
+    });
+    expect(result.status).toBe(200);
+
+    const row = await app.db.db.execute<{
+      role: string;
+      status: string;
+      company: string;
+      balance: number;
+    }>(sql`
+      SELECT u.role, u.status, p.company, w.balance
+        FROM users u
+        JOIN profiles p ON p.user_id = u.id
+        JOIN credit_wallets w ON w.user_id = u.id
+       WHERE u.email = 'massassign@example.test'
+    `);
+    const user = row.rows[0];
+
+    // The legitimate field applied...
+    expect(user?.company).toBe("Legitimate Co");
+    // ...and every privileged one was dropped on the floor.
+    expect(user?.role, "role must not be settable by its owner").toBe("user");
+    expect(user?.balance, "credits must never come from a request body").toBe(0);
+  });
+});
+
+// ===========================================================================
+describe("privilege revocation takes effect immediately", () => {
+  /*
+   * The property that makes an incident survivable: taking a role away must
+   * stop the CURRENT session, not the next one. `loadPrincipal` re-reads role
+   * and status from the database on every request, which is what buys this —
+   * and is precisely what a session cache or a JWT claim would quietly undo.
+   */
+  async function adminCookies(email: string): Promise<string[]> {
+    const cookies = await signedInCookies(email);
+    await app.db.db.execute(
+      sql`UPDATE users SET role = 'super_admin', two_factor_enabled = true WHERE email = ${email}`,
+    );
+    return cookies;
+  }
+
+  it("stops an in-flight admin session the moment the role is removed", async () => {
+    const cookies = await adminCookies("revoked@example.test");
+    expect((await app.json("/v1/admin/overview", { cookies })).status).toBe(200);
+
+    await app.db.db.execute(
+      sql`UPDATE users SET role = 'user' WHERE email = 'revoked@example.test'`,
+    );
+
+    const after = await app.json("/v1/admin/overview", { cookies });
+    expect(after.status, "the same cookie must now be refused").toBe(403);
+    expect(after.data, "and must carry no admin data").toBeNull();
+  });
+
+  it("stops any session the moment the account is suspended", async () => {
+    const cookies = await signedInCookies("suspended-live@example.test");
+    expect((await app.json("/v1/me", { cookies })).status).toBe(200);
+
+    await app.db.db.execute(sql`
+      UPDATE users SET status = 'suspended', suspended_at = now(), suspended_reason = 'test'
+       WHERE email = 'suspended-live@example.test'
+    `);
+
+    const after = await app.json("/v1/me", { cookies });
+    expect(after.status).toBe(401);
+    expect(after.data).toBeNull();
+  });
+});
+
+// ===========================================================================
+describe("responses must not be cacheable or cross-origin readable", () => {
+  it("marks an authenticated response no-store", async () => {
+    // A shared cache holding this would serve one person's account to another.
+    const cookies = await signedInCookies("cacheable@example.test");
+    const response = await app.fetch("/v1/me", { cookies });
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(response.headers.get("cache-control")).toContain("private");
+  });
+
+  it("never returns a CORS allow header, so no other site can read a response", async () => {
+    const response = await app.fetch("/v1/me", {
+      headers: { origin: "https://evil.example.com" },
+    });
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+  });
+});
+
+// ===========================================================================
 describe("CSRF and origin", () => {
   it("refuses a state-changing request with a foreign Origin", async () => {
     const cookies = await signedInCookies("csrf@example.test");
