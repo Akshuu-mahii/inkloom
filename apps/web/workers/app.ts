@@ -29,6 +29,7 @@ import { buildServices, createApiApp } from "@inkloom/api";
 import { createDb } from "@inkloom/db/client";
 import { generateNonce, securityHeaders } from "@inkloom/core/security";
 import { runRetentionSweep } from "@inkloom/core/retention";
+import { flushIfDue, record as recordRequest, routeGroupFor } from "@inkloom/core/telemetry";
 import { nonceContext, servicesContext } from "../app/lib/context";
 
 interface WorkerEnv {
@@ -105,27 +106,59 @@ export default {
   async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
     const { db, pool } = connect(env);
 
+    const services = buildServices({ db, env: env as Record<string, unknown> });
+    const url = new URL(request.url);
+    const startedAt = Date.now();
+
     /**
-     * Close the connection AFTER the handler has finished.
+     * Record the request, flush if due, then close the connection — in that
+     * order, after the handler has finished.
      *
      * `ctx.waitUntil` extends the isolate's lifetime; it does NOT defer the
      * promise it is given. Passing `pool.end()` directly therefore ended the
      * pool immediately, before a single loader had run, and every request
      * failed with "Cannot use a pool after calling end on the pool".
      *
-     * Scheduling the close only once the response exists is what makes it
-     * correct: by then every loader, action and API handler has completed.
+     * The flush is CHAINED ahead of the close rather than scheduled beside it.
+     * Two independent `waitUntil` calls have no ordering guarantee, so the pool
+     * could end first and every flush would fail against a dead connection —
+     * silently, since a flush must never turn a served request into an error.
+     * Telemetry would simply have been empty forever, which is the kind of bug
+     * that is only noticed months later when someone asks for a graph.
      */
-    const closeLater = () => ctx.waitUntil(pool.end().catch(() => {}));
+    const finish = (status: number, errorCode?: string | null) => {
+      recordRequest(
+        {
+          routeGroup: routeGroupFor(url.pathname, services.config.ADMIN_PATH),
+          status,
+          durationMs: Date.now() - startedAt,
+          errorCode,
+        },
+        new Date(),
+      );
 
-    const services = buildServices({ db, env: env as Record<string, unknown> });
-    const url = new URL(request.url);
+      ctx.waitUntil(
+        // Eager in development only: the dev server re-evaluates modules per
+        // request, so nothing would ever accumulate long enough to flush.
+        flushIfDue(db, services.logger, services.config.INKLOOM_ENV === "development")
+          .catch(() => {})
+          .finally(() => pool.end().catch(() => {})),
+      );
+    };
 
     // --- API ---------------------------------------------------------------
     // Returns JSON, sets its own headers, and must not receive the document CSP.
     if (url.pathname.startsWith("/api/")) {
       const apiResponse = await createApiApp(services).fetch(request, env, ctx);
-      closeLater();
+      /*
+       * The typed code from the error envelope, when there is one.
+       *
+       * A category — RATE_LIMITED, DB_TIMEOUT — never a message. Messages carry
+       * addresses, ids and query fragments, and this lands in a table with a
+       * longer life and a wider audience than anything that should hold them.
+       * Stack traces go to Sentry, which is built for them.
+       */
+      finish(apiResponse.status, apiResponse.headers.get("x-error-code"));
       return apiResponse;
     }
 
@@ -148,7 +181,7 @@ export default {
       adminPath !== "/admin" &&
       (url.pathname === "/admin" || url.pathname.startsWith("/admin/"))
     ) {
-      closeLater();
+      finish(404);
       return new Response("Not found", {
         status: 404,
         headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
@@ -170,7 +203,7 @@ export default {
      * before rendering begins, and no route defers data with `Await`, so all
      * database work is complete by the time this resolves.
      */
-    closeLater();
+    finish(response.status);
 
     const headers = securityHeaders({
       nonce,

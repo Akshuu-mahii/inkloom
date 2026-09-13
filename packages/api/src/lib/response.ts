@@ -51,6 +51,19 @@ export function errorResponse(c: Context, error: unknown): Response {
     };
     const response = c.json(body, error.status as 400);
     if (error.retryAfter) response.headers.set("Retry-After", String(error.retryAfter));
+    /*
+     * The failure CATEGORY, for the telemetry collector at the Worker edge.
+     *
+     * A header rather than re-parsing the JSON body, which would mean consuming
+     * a stream the caller still needs. The value is the typed code and never
+     * the message: codes are a closed set defined in this package, while
+     * messages can carry an address, an id or a fragment of a query, and the
+     * metrics table they would land in is retained far longer and read far more
+     * widely than anything that should hold those.
+     *
+     * Safe to expose — the same code is already in the body the caller reads.
+     */
+    response.headers.set("x-error-code", error.code);
     return response;
   }
 
@@ -59,7 +72,9 @@ export function errorResponse(c: Context, error: unknown): Response {
     error: { code: "INTERNAL_ERROR", message: SAFE_MESSAGES.INTERNAL_ERROR },
     requestId,
   };
-  return c.json(body, 500);
+  const response = c.json(body, 500);
+  response.headers.set("x-error-code", "INTERNAL_ERROR");
+  return response;
 }
 
 /** Convenience for throwing inside a handler. */

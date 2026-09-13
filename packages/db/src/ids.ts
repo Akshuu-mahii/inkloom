@@ -48,6 +48,9 @@ export const ID_PREFIXES = {
   export: "exp",
   twoFactor: "tfa",
   request: "req",
+  requestMetric: "rqm",
+  dailyMetric: "dmx",
+  providerMetric: "pvm",
 } as const;
 
 export type IdPrefix = (typeof ID_PREFIXES)[keyof typeof ID_PREFIXES];

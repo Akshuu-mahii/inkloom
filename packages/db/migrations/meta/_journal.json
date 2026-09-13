@@ -47,8 +47,15 @@
     {
       "idx": 6,
       "version": "7",
-      "when": 1789430000000,
+      "when": 1789219000000,
       "tag": "0006_drop_email_change_and_deletion_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789306187883,
+      "tag": "0007_telemetry_tables",
       "breakpoints": true
     }
   ]

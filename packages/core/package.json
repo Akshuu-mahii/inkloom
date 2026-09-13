@@ -19,7 +19,8 @@
     "./support": "./src/support/index.ts",
     "./analytics": "./src/analytics/index.ts",
     "./notifications": "./src/notifications/index.ts",
-    "./retention": "./src/retention/index.ts"
+    "./retention": "./src/retention/index.ts",
+    "./telemetry": "./src/telemetry/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

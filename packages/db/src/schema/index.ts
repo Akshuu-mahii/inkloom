@@ -6,4 +6,5 @@ export * from "./credits";
 export * from "./comms";
 export * from "./support";
 export * from "./observability";
+export * from "./telemetry";
 export * from "./system";
