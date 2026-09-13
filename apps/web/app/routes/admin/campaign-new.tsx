@@ -1,4 +1,5 @@
 import { Form, Link, useActionData, useNavigation } from "react-router";
+import { adminUrl, useAdminPath } from "./admin-path";
 import { useState } from "react";
 import type { Route } from "./+types/campaign-new";
 import { call, fieldErrors } from "../../lib/api";
@@ -55,6 +56,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function NewCampaign() {
+  const adminPath = useAdminPath();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const [copied, setCopied] = useState(false);
@@ -132,10 +134,10 @@ export default function NewCampaign() {
           </dl>
 
           <div style={{ display: "flex", gap: "0.75rem", marginTop: "2rem" }}>
-            <Link to={`/admin/access-codes/${created.id}`} className="btn btn-ink">
+            <Link to={adminUrl(adminPath, `access-codes/${created.id}`)} className="btn btn-ink">
               View campaign
             </Link>
-            <Link to="/admin/access-codes" className="btn btn-quiet">
+            <Link to={adminUrl(adminPath, "access-codes")} className="btn btn-quiet">
               All campaigns
             </Link>
           </div>
@@ -152,7 +154,7 @@ export default function NewCampaign() {
         title="Create a campaign"
         description="A campaign turns one code into credits, with limits you control."
         actions={
-          <Link to="/admin/access-codes" className="btn btn-quiet">
+          <Link to={adminUrl(adminPath, "access-codes")} className="btn btn-quiet">
             Cancel
           </Link>
         }

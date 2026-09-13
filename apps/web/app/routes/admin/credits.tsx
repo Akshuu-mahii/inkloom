@@ -6,6 +6,7 @@ import {
   useOutletContext,
   useSearchParams,
 } from "react-router";
+import { adminUrl, useAdminPath } from "./admin-path";
 import type { Route } from "./+types/credits";
 import { call, fieldErrors, type Paged } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
@@ -115,6 +116,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function AdminCredits({ loaderData }: Route.ComponentProps) {
+  const adminPath = useAdminPath();
   const { role } = useOutletContext<{ role: Role }>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
@@ -199,7 +201,7 @@ export default function AdminCredits({ loaderData }: Route.ComponentProps) {
                         {formatDate(e.createdAt, true)}
                       </td>
                       <td>
-                        <Link to={`/admin/users/${e.userId}`}>{e.email}</Link>
+                        <Link to={adminUrl(adminPath, `users/${e.userId}`)}>{e.email}</Link>
                       </td>
                       <td style={{ fontSize: "var(--text-micro)" }}>{e.type}</td>
                       <td style={{ color: "var(--color-muted)" }}>{e.reason}</td>
@@ -229,7 +231,10 @@ export default function AdminCredits({ loaderData }: Route.ComponentProps) {
           {loaderData.nextCursor && (
             <p style={{ marginTop: "1.25rem" }}>
               <Link
-                to={`/admin/credits?cursor=${encodeURIComponent(loaderData.nextCursor)}`}
+                to={adminUrl(
+                  adminPath,
+                  `credits?cursor=${encodeURIComponent(loaderData.nextCursor)}`,
+                )}
                 className="btn btn-quiet"
               >
                 Older entries

@@ -1,4 +1,5 @@
 import { Form, Link, useActionData, useNavigation, useOutletContext } from "react-router";
+import { adminUrl, useAdminPath } from "./admin-path";
 import type { Route } from "./+types/user-detail";
 import { call } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
@@ -91,6 +92,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function UserDetail({ loaderData }: Route.ComponentProps) {
+  const adminPath = useAdminPath();
   const { role } = useOutletContext<{ role: Role }>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
@@ -117,7 +119,7 @@ export default function UserDetail({ loaderData }: Route.ComponentProps) {
         title={d.user.name}
         description={d.user.email}
         actions={
-          <Link to="/admin/users" className="btn btn-quiet">
+          <Link to={adminUrl(adminPath, "users")} className="btn btn-quiet">
             Back to users
           </Link>
         }
@@ -235,7 +237,7 @@ export default function UserDetail({ loaderData }: Route.ComponentProps) {
           )}
 
           {canAdjust && (
-            <Link to={`/admin/credits?userId=${d.user.id}`} className="btn btn-quiet">
+            <Link to={adminUrl(adminPath, `credits?userId=${d.user.id}`)} className="btn btn-quiet">
               Adjust credits
             </Link>
           )}

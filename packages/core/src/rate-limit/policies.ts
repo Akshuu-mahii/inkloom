@@ -107,6 +107,26 @@ export const RATE_LIMIT_POLICIES = {
     scope: "ip",
     description: "Support submissions per network per day",
   },
+  /*
+   * Every admin API call, per staff account.
+   *
+   * Not an anti-abuse control in the usual sense — a legitimate operator will
+   * never come close to it. It is a blast-radius limit: if a staff session is
+   * ever stolen, this is what stops it enumerating every user and every ledger
+   * entry at machine speed before anyone notices. Generous enough that normal
+   * console use, including a page that fires several requests at once, never
+   * touches it.
+   *
+   * Counts every attempt, not just failures: a successful bulk export is
+   * exactly the thing being bounded here.
+   */
+  "admin.api.user": {
+    bucket: "admin.api.user",
+    limit: 600,
+    windowSeconds: 300,
+    scope: "user",
+    description: "Admin API calls per staff account per 5 minutes",
+  },
   "admin.login.account": {
     bucket: "admin.login.account",
     limit: 5,

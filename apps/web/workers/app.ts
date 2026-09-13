@@ -45,7 +45,14 @@ const requestHandler = createRequestHandler(
 
 /** Pages that render the Turnstile widget, and so need its script and frame. */
 const TURNSTILE_PATHS = ["/auth/signup", "/auth/login", "/auth/forgot-password", "/contact"];
-/** Authenticated areas, which no shared cache may hold. */
+/**
+ * Authenticated areas, which no shared cache may hold.
+ *
+ * The admin console's real prefix is a deployment secret, so it is added from
+ * config at request time rather than listed here — a hardcoded "/admin" would
+ * have silently stopped matching the moment a secret path was configured, and
+ * the console would have started coming back cacheable.
+ */
 const PRIVATE_PATHS = ["/app", "/admin"];
 
 /*
@@ -122,6 +129,32 @@ export default {
       return apiResponse;
     }
 
+    /*
+     * --- The decoy ---------------------------------------------------------
+     *
+     * The console is mounted at `ADMIN_PATH` by the route table itself (see
+     * app/routes.ts), so the router generates correct links and nothing needs
+     * rewriting here. What this does is make the obvious path a dead end: once
+     * a secret path is configured, /admin answers exactly as any other missing
+     * URL does, with no header, no redirect and no timing tell to distinguish
+     * "moved" from "never existed".
+     *
+     * Obscurity only. Every request that reaches the real path still faces the
+     * whole server-side gate — session, role, owner, 2FA, rate limit, audit —
+     * and that gate would hold if this path were printed on the home page.
+     */
+    const adminPath = services.config.ADMIN_PATH;
+    if (
+      adminPath !== "/admin" &&
+      (url.pathname === "/admin" || url.pathname.startsWith("/admin/"))
+    ) {
+      closeLater();
+      return new Response("Not found", {
+        status: 404,
+        headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+      });
+    }
+
     // --- Documents ---------------------------------------------------------
     // A fresh nonce per response, so the CSP can forbid inline script wholesale
     // while React Router's own hydration script still runs.
@@ -150,7 +183,7 @@ export default {
       response.headers.set(key, value);
     }
 
-    if (PRIVATE_PATHS.some((path) => url.pathname.startsWith(path))) {
+    if ([...PRIVATE_PATHS, adminPath].some((path) => url.pathname.startsWith(path))) {
       response.headers.set("Cache-Control", "no-store, must-revalidate, private");
     } else {
       /*

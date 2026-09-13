@@ -204,6 +204,8 @@ export interface Me {
   role: "user" | "support" | "operations" | "admin" | "super_admin";
   status: string;
   twoFactorEnabled: boolean;
+  /** Server-computed: role + owner gate + 2FA. The API re-checks all of it. */
+  canAccessAdmin: boolean;
   /** False for an account created through Google: there is no password to confirm. */
   hasPassword: boolean;
   /** e.g. ["credential"], ["google"], or both once a password is set. */

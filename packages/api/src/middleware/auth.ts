@@ -152,18 +152,67 @@ export const requireVerified: MiddlewareHandler<Env> = async (c, next) => {
 };
 
 /**
+ * The owner gate: a second, independent authority on staff access.
+ *
+ * `OWNER_EMAIL` lives in the deployment's secrets; the role lives in a database
+ * column. Requiring both to agree means neither alone is sufficient — an
+ * attacker who can write to `users.role` still does not hold the deployment
+ * secret, and an attacker holding the secret still needs a real session for an
+ * account that carries the role.
+ *
+ * Compared on the NORMALIZED address, because `Owner@Example.com` and
+ * `owner@example.com` are the same mailbox and a case difference here would
+ * lock the real owner out of their own console.
+ *
+ * Unset means "role check only". That is deliberate: staging environments
+ * legitimately have several staff accounts, and forcing a single owner there
+ * would push people towards sharing one login, which is worse than the thing
+ * this defends against.
+ */
+export function passesOwnerGate(principal: Principal, ownerEmail: string | undefined): boolean {
+  if (!ownerEmail) return true;
+  return principal.normalizedEmail === ownerEmail.trim().toLowerCase();
+}
+
+/**
  * Require a specific permission.
  *
- * Also enforces the two cross-cutting rules the brief attaches to high-impact
- * actions: mandatory 2FA for anyone holding an admin role, and a recent
- * authentication for permissions that move money or privilege.
+ * Also enforces the cross-cutting rules the brief attaches to high-impact
+ * actions: the owner gate, mandatory 2FA for anyone holding an admin role, and
+ * a recent authentication for permissions that move money or privilege.
  */
 export function requirePermission(permission: Permission): MiddlewareHandler<Env> {
   return async (c, next) => {
     const principal = c.get("principal");
-    const { audit } = c.get("services");
+    const { audit, config } = c.get("services");
 
     if (!principal) return errorResponse(c, apiError("UNAUTHENTICATED"));
+
+    /*
+     * Owner gate first, and it answers FORBIDDEN without saying why.
+     *
+     * Someone who holds a staff role but is not the owner is the most
+     * interesting case in this file: either a legitimate change nobody
+     * completed, or a privilege escalation in progress. It is recorded at
+     * `warning` either way, and the response tells them nothing they could use
+     * to work out which of the several gates stopped them.
+     */
+    if (!passesOwnerGate(principal, config.OWNER_EMAIL)) {
+      await audit.security({
+        type: "unauthorized_admin_access",
+        severity: "warning",
+        userId: principal.userId,
+        ipHash: c.get("ipHash"),
+        requestId: c.get("requestId"),
+        metadata: {
+          permission,
+          role: principal.role,
+          reason: "owner_gate",
+          path: new URL(c.req.url).pathname,
+        },
+      });
+      return errorResponse(c, apiError("FORBIDDEN"));
+    }
 
     if (!hasPermission(principal.role, permission)) {
       // Every refused admin access is a security event: a user probing

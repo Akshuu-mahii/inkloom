@@ -1,4 +1,5 @@
 import { Form, Link, useSearchParams } from "react-router";
+import { adminUrl, useAdminPath } from "./admin-path";
 import type { Route } from "./+types/audit";
 import { call, type Paged } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
@@ -39,6 +40,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export default function AuditLog({ loaderData }: Route.ComponentProps) {
+  const adminPath = useAdminPath();
   const [params] = useSearchParams();
 
   return (
@@ -105,7 +107,9 @@ export default function AuditLog({ loaderData }: Route.ComponentProps) {
                   <td style={{ fontWeight: 500 }}>{e.action}</td>
                   <td>
                     {e.actorId ? (
-                      <Link to={`/admin/users/${e.actorId}`}>{e.actorRole ?? e.actorType}</Link>
+                      <Link to={adminUrl(adminPath, `users/${e.actorId}`)}>
+                        {e.actorRole ?? e.actorType}
+                      </Link>
                     ) : (
                       <span style={{ color: "var(--color-muted)" }}>{e.actorType}</span>
                     )}
@@ -113,9 +117,11 @@ export default function AuditLog({ loaderData }: Route.ComponentProps) {
                   <td style={{ color: "var(--color-muted)" }}>
                     {e.targetType && e.targetId ? (
                       e.targetType === "user" ? (
-                        <Link to={`/admin/users/${e.targetId}`}>{e.targetType}</Link>
+                        <Link to={adminUrl(adminPath, `users/${e.targetId}`)}>{e.targetType}</Link>
                       ) : e.targetType === "campaign" ? (
-                        <Link to={`/admin/access-codes/${e.targetId}`}>{e.targetType}</Link>
+                        <Link to={adminUrl(adminPath, `access-codes/${e.targetId}`)}>
+                          {e.targetType}
+                        </Link>
                       ) : (
                         e.targetType
                       )
@@ -137,7 +143,7 @@ export default function AuditLog({ loaderData }: Route.ComponentProps) {
       {loaderData.nextCursor && (
         <p style={{ marginTop: "1.5rem" }}>
           <Link
-            to={`/admin/audit?cursor=${encodeURIComponent(loaderData.nextCursor)}`}
+            to={adminUrl(adminPath, `audit?cursor=${encodeURIComponent(loaderData.nextCursor)}`)}
             className="btn btn-quiet"
           >
             Older entries

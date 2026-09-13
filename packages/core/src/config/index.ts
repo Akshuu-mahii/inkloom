@@ -70,6 +70,47 @@ export const envSchema = z.object({
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.1),
   INKLOOM_RELEASE: z.string().default("dev"),
 
+  /**
+   * Where the admin console is mounted.
+   *
+   * An obscure path raises the cost of casual discovery — a scanner walking
+   * /admin, /wp-admin, /administrator finds nothing. It is an obscurity layer
+   * and NOTHING MORE. It leaks through Referer headers, browser history, proxy
+   * and CDN logs, screenshots and shared links, and it is worth exactly zero
+   * against the realistic threat, which is a compromised staff account. Every
+   * control that actually matters — session, role, owner check, 2FA, recent
+   * auth, rate limit, audit — is enforced server-side on every request and
+   * would hold if this path were printed on the home page.
+   *
+   * Rotatable: change the secret, redeploy, and the old path stops resolving.
+   *
+   * Must start with "/" and contain one path segment of safe characters, so it
+   * cannot be set to something that escapes its own prefix or collides with
+   * /api, /app or /auth.
+   */
+  ADMIN_PATH: z
+    .string()
+    .default("/admin")
+    .refine((v) => /^\/[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$/.test(v), {
+      message: "ADMIN_PATH must be a single path segment such as /internal-admin-7f3a91",
+    })
+    .refine((v) => !["/api", "/app", "/auth", "/assets"].includes(v.toLowerCase()), {
+      message: "ADMIN_PATH must not collide with a reserved prefix.",
+    }),
+
+  /**
+   * The one account that owns this installation.
+   *
+   * A second, independent gate on top of the role check. Roles live in a table
+   * an attacker with database access could edit; this lives in the deployment's
+   * secrets. Both must agree before the console renders, so neither a stolen
+   * session nor a rewritten role row is sufficient alone.
+   *
+   * Optional: unset means "role check only", which is the correct behaviour for
+   * a staging environment where several people legitimately hold staff roles.
+   */
+  OWNER_EMAIL: z.string().optional(),
+
   ANALYTICS_ENABLED: boolish.default(true),
   RATE_LIMIT_ENABLED: boolish.default(true),
 

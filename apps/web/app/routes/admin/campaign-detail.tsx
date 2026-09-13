@@ -1,4 +1,5 @@
 import { Form, Link, useActionData, useNavigation, useOutletContext } from "react-router";
+import { adminUrl, useAdminPath } from "./admin-path";
 import type { Route } from "./+types/campaign-detail";
 import { call } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
@@ -80,6 +81,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function CampaignDetailPage({ loaderData }: Route.ComponentProps) {
+  const adminPath = useAdminPath();
   const { role } = useOutletContext<{ role: Role }>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
@@ -106,7 +108,7 @@ export default function CampaignDetailPage({ loaderData }: Route.ComponentProps)
         title={c.name}
         description={c.description ?? undefined}
         actions={
-          <Link to="/admin/access-codes" className="btn btn-quiet">
+          <Link to={adminUrl(adminPath, "access-codes")} className="btn btn-quiet">
             All campaigns
           </Link>
         }
@@ -280,7 +282,7 @@ export default function CampaignDetailPage({ loaderData }: Route.ComponentProps)
                 {d.redemptions.map((r) => (
                   <tr key={r.id}>
                     <td>
-                      <Link to={`/admin/users/${r.userId}`}>{r.email}</Link>
+                      <Link to={adminUrl(adminPath, `users/${r.userId}`)}>{r.email}</Link>
                     </td>
                     <td className="numeric" style={{ textAlign: "right" }}>
                       {r.creditsGranted}

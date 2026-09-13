@@ -1,4 +1,5 @@
 import { Link, useSearchParams, Form } from "react-router";
+import { adminUrl, useAdminPath } from "./admin-path";
 import type { Route } from "./+types/security";
 import { call } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
@@ -50,6 +51,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export default function AdminSecurity({ loaderData }: Route.ComponentProps) {
+  const adminPath = useAdminPath();
   const [params] = useSearchParams();
   const d = loaderData.data;
 
@@ -161,7 +163,9 @@ export default function AdminSecurity({ loaderData }: Route.ComponentProps) {
                   </td>
                   <td>
                     {e.userId ? (
-                      <Link to={`/admin/users/${e.userId}`}>{e.targetEmail ?? "account"}</Link>
+                      <Link to={adminUrl(adminPath, `users/${e.userId}`)}>
+                        {e.targetEmail ?? "account"}
+                      </Link>
                     ) : (
                       <span style={{ color: "var(--color-muted)" }}>{e.targetEmail ?? "—"}</span>
                     )}
@@ -226,7 +230,7 @@ export default function AdminSecurity({ loaderData }: Route.ComponentProps) {
       {d?.page.nextCursor && (
         <p style={{ marginTop: "1.5rem" }}>
           <Link
-            to={`/admin/security?cursor=${encodeURIComponent(d.page.nextCursor)}`}
+            to={adminUrl(adminPath, `security?cursor=${encodeURIComponent(d.page.nextCursor)}`)}
             className="btn btn-quiet"
           >
             Older events

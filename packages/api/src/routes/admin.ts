@@ -41,6 +41,7 @@ import type { Env } from "../context";
 import { apiError, ok, paged } from "../lib/response";
 import { body, query, validateBody, validateQuery } from "../middleware/validate";
 import { assertReason, requirePermission } from "../middleware/auth";
+import { bySubjectUser, rateLimit } from "../middleware/rate-limit";
 import {
   adjustCreditsSchema,
   adminUserListSchema,
@@ -64,8 +65,17 @@ import {
 
 export const adminRoutes = new Hono<Env>();
 
-/** Blanket gate. Every specific route adds its own, narrower permission. */
+/**
+ * Blanket gate. Every specific route adds its own, narrower permission.
+ *
+ * Order is deliberate: authorize BEFORE metering. Rate limiting an
+ * unauthenticated caller would let an anonymous prober fill a staff account's
+ * bucket and lock the real operator out of their own console — a denial of
+ * service handed over for free. Only calls that have already proven they are
+ * the owner, hold the role, and carry a second factor are counted.
+ */
 adminRoutes.use("*", requirePermission("admin.access"));
+adminRoutes.use("*", rateLimit({ bucket: "admin.api.user", subject: bySubjectUser }));
 
 // ===========================================================================
 // Overview

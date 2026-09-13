@@ -26,7 +26,8 @@ import { templates } from "@inkloom/email";
 import type { Env } from "../context";
 import { apiError, ok, paged } from "../lib/response";
 import { body, query, validateBody, validateQuery } from "../middleware/validate";
-import { requireAuth } from "../middleware/auth";
+import { passesOwnerGate, requireAuth } from "../middleware/auth";
+import { isAdminRole } from "@inkloom/core/rbac";
 import { rateLimit, bySubjectUser } from "../middleware/rate-limit";
 import { notificationPreferencesSchema, paginationSchema, updateMeSchema } from "../schemas/index";
 
@@ -39,7 +40,7 @@ meRoutes.use("*", requireAuth);
 // ---------------------------------------------------------------------------
 meRoutes.get("/", async (c) => {
   const principal = c.get("principal")!;
-  const { db, credits, settings } = c.get("services");
+  const { db, credits, settings, config } = c.get("services");
 
   const [profile, prefs, wallet, redemptionCount] = await Promise.all([
     db.query.profile.findFirst({ where: eq(profileTable.userId, principal.userId) }),
@@ -79,6 +80,24 @@ meRoutes.get("/", async (c) => {
     role: principal.role,
     status: principal.status,
     twoFactorEnabled: principal.twoFactorEnabled,
+    /*
+     * Whether this account may open the admin console.
+     *
+     * Computed HERE, server-side, from the same owner gate the admin API
+     * enforces — so the page gate and the API gate cannot drift apart and
+     * disagree. The console's loader reads this one boolean rather than
+     * re-deriving the rule in the browser, where a subtly different email
+     * normalisation would either lock the owner out or, far worse, let someone
+     * else in.
+     *
+     * Safe to return: it tells the caller only about themselves, and it is a
+     * courtesy for rendering. The control is `requirePermission`, which runs
+     * again on every admin request regardless of what this said.
+     */
+    canAccessAdmin:
+      isAdminRole(principal.role) &&
+      principal.twoFactorEnabled &&
+      passesOwnerGate(principal, config.OWNER_EMAIL),
     hasPassword: linked.some((row) => row.password !== null),
     providers: linked.map((row) => row.providerId),
     createdAt: account?.createdAt ?? null,

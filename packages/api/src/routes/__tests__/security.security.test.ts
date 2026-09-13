@@ -190,6 +190,112 @@ describe("cross-user access (IDOR)", () => {
 });
 
 // ===========================================================================
+describe("the owner gate", () => {
+  /*
+   * A second authority on staff access, independent of the role column.
+   *
+   * The role lives in a table; OWNER_EMAIL lives in the deployment's secrets.
+   * Requiring both means writing to `users.role` is no longer enough to reach
+   * the console — which is precisely the escalation the test above proves a
+   * client cannot perform through the API, and this defends the case where an
+   * attacker reaches the database by some other route entirely.
+   */
+  async function staffCookies(app: TestApp, email: string): Promise<string[]> {
+    await app.json("/v1/auth/signup", {
+      method: "POST",
+      body: JSON.stringify({ ...CREDENTIALS, email }),
+    });
+    const token = extractToken(app.mail.lastTo(email)!.html);
+    await app.json("/v1/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) });
+    const login = await app.json("/v1/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password: CREDENTIALS.password }),
+    });
+
+    /*
+     * Promote AFTER signing in, not before.
+     *
+     * Setting `two_factor_enabled` first makes the login itself demand a second
+     * factor, so no session cookie is ever issued and every assertion below
+     * fails with 401 for a reason that has nothing to do with the gate under
+     * test. Promoting afterwards works because `loadPrincipal` re-reads role
+     * and 2FA from the database on every request — which is the property that
+     * makes an instant demotion possible, demonstrated here by accident.
+     */
+    await app.db.db.execute(
+      sql`UPDATE users SET role = 'super_admin', two_factor_enabled = true WHERE email = ${email}`,
+    );
+    return login.cookies;
+  }
+
+  it("refuses a full super_admin who is not the configured owner", async () => {
+    const owned = createTestApp({ OWNER_EMAIL: "owner@example.test" });
+    try {
+      await owned.reset();
+      const cookies = await staffCookies(owned, "impostor@example.test");
+
+      const result = await owned.json("/v1/admin/overview", { cookies });
+
+      expect(result.status, "a role alone must not be enough").toBe(403);
+      expect(result.error?.code).toBe("FORBIDDEN");
+      // The refusal must not say WHICH gate stopped them.
+      expect(JSON.stringify(result)).not.toContain("owner");
+    } finally {
+      await owned.close();
+    }
+  });
+
+  it("admits the configured owner", async () => {
+    const owned = createTestApp({ OWNER_EMAIL: "owner@example.test" });
+    try {
+      await owned.reset();
+      const cookies = await staffCookies(owned, "owner@example.test");
+      const result = await owned.json("/v1/admin/overview", { cookies });
+      expect(result.status).toBe(200);
+    } finally {
+      await owned.close();
+    }
+  });
+
+  it("matches the owner case-insensitively, so a capital cannot lock them out", async () => {
+    const owned = createTestApp({ OWNER_EMAIL: "Owner@Example.Test" });
+    try {
+      await owned.reset();
+      const cookies = await staffCookies(owned, "owner@example.test");
+      const result = await owned.json("/v1/admin/overview", { cookies });
+      expect(result.status).toBe(200);
+    } finally {
+      await owned.close();
+    }
+  });
+
+  it("records a refused owner-gate attempt as a security event", async () => {
+    const owned = createTestApp({ OWNER_EMAIL: "owner@example.test" });
+    try {
+      await owned.reset();
+      const cookies = await staffCookies(owned, "impostor@example.test");
+      await owned.json("/v1/admin/overview", { cookies });
+
+      const events = await owned.db.db.execute<{ type: string; metadata: { reason?: string } }>(
+        sql`SELECT type, metadata FROM security_events WHERE type = 'unauthorized_admin_access'`,
+      );
+      expect(events.rows.length).toBeGreaterThan(0);
+      expect(events.rows.some((r) => r.metadata?.reason === "owner_gate")).toBe(true);
+    } finally {
+      await owned.close();
+    }
+  });
+
+  it("falls back to the role check when no owner is configured", async () => {
+    // Staging legitimately has several staff accounts. Requiring a single owner
+    // there would push people towards sharing one login, which is worse.
+    const cookies = await staffCookies(app, "staff@example.test");
+    const result = await app.json("/v1/admin/overview", { cookies });
+    expect(result.status).toBe(200);
+  });
+});
+
+// ===========================================================================
 describe("CSRF and origin", () => {
   it("refuses a state-changing request with a foreign Origin", async () => {
     const cookies = await signedInCookies("csrf@example.test");

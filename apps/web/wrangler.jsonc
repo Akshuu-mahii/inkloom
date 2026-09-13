@@ -69,6 +69,10 @@
     "EMAIL_FROM": "Inkloom <no-reply@mail.inkloom.com>",
     "EMAIL_REPLY_TO": "support@inkloom.com",
     "SUPPORT_EMAIL": "support@inkloom.com",
+    // ADMIN_PATH and OWNER_EMAIL are deployment secrets set with
+    // `wrangler secret put`, NOT here. ADMIN_PATH must ALSO be present in the
+    // build environment — the route table bakes it in so the console's links
+    // are correct. See docs/DEPLOYMENT.md.
     "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
     "TURNSTILE_ENABLED": "true",
     "RATE_LIMIT_ENABLED": "true",

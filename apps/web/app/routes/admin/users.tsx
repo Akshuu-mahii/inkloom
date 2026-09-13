@@ -1,4 +1,5 @@
 import { Form, Link, useSearchParams } from "react-router";
+import { adminUrl, useAdminPath } from "./admin-path";
 import type { Route } from "./+types/users";
 import { call, type Paged } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
@@ -45,6 +46,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export default function AdminUsers({ loaderData }: Route.ComponentProps) {
+  const adminPath = useAdminPath();
   const [params] = useSearchParams();
 
   return (
@@ -111,7 +113,7 @@ export default function AdminUsers({ loaderData }: Route.ComponentProps) {
               {loaderData.users.map((user) => (
                 <tr key={user.id}>
                   <td>
-                    <Link to={`/admin/users/${user.id}`} style={{ fontWeight: 500 }}>
+                    <Link to={adminUrl(adminPath, `users/${user.id}`)} style={{ fontWeight: 500 }}>
                       {user.email}
                     </Link>
                     <br />
@@ -153,7 +155,7 @@ export default function AdminUsers({ loaderData }: Route.ComponentProps) {
       {loaderData.nextCursor && (
         <p style={{ marginTop: "1.5rem" }}>
           <Link
-            to={`/admin/users?cursor=${encodeURIComponent(loaderData.nextCursor)}`}
+            to={adminUrl(adminPath, `users?cursor=${encodeURIComponent(loaderData.nextCursor)}`)}
             className="btn btn-quiet"
           >
             Next page

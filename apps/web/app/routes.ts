@@ -13,6 +13,22 @@ import { type RouteConfig, index, layout, prefix, route } from "@react-router/de
  * The admin routes are declared here but every one of them re-checks
  * permission on the SERVER. Route configuration is not access control.
  */
+/**
+ * Where the admin console is mounted.
+ *
+ * Read at BUILD time from `ADMIN_PATH`, so React Router's own route table
+ * carries the secret segment. That matters: every `<Link>` and redirect the
+ * console generates is then correct by construction. Rewriting the path inside
+ * the Worker instead would leave the router believing it lived at /admin, and
+ * every link it rendered would point at a URL that no longer resolves.
+ *
+ * The cost is that rotating the path is a redeploy rather than a secret change.
+ * That is the right trade for something that is an obscurity layer and never
+ * the authorization: it is rotated rarely, and authorization is re-checked
+ * server-side on every request regardless of which path got there.
+ */
+const ADMIN_PREFIX = (process.env.ADMIN_PATH ?? "/admin").replace(/^\//, "") || "admin";
+
 export default [
   // --- Marketing ---------------------------------------------------------
   layout("routes/marketing/layout.tsx", [
@@ -71,7 +87,7 @@ export default [
 
   // --- Admin --------------------------------------------------------------
   layout("routes/admin/layout.tsx", [
-    ...prefix("admin", [
+    ...prefix(ADMIN_PREFIX, [
       index("routes/admin/overview.tsx"),
       route("users", "routes/admin/users.tsx"),
       route("users/:id", "routes/admin/user-detail.tsx"),

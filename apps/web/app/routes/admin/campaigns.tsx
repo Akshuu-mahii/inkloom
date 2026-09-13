@@ -1,4 +1,5 @@
 import { Link, useOutletContext } from "react-router";
+import { adminUrl, useAdminPath } from "./admin-path";
 import type { Route } from "./+types/campaigns";
 import { call } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
@@ -37,6 +38,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export default function Campaigns({ loaderData }: Route.ComponentProps) {
+  const adminPath = useAdminPath();
   const { role } = useOutletContext<{ role: Role }>();
 
   return (
@@ -46,7 +48,7 @@ export default function Campaigns({ loaderData }: Route.ComponentProps) {
         description="Campaigns that grant promotional credits."
         actions={
           hasPermission(role, "codes.create") ? (
-            <Link to="/admin/access-codes/new" className="btn btn-primary">
+            <Link to={adminUrl(adminPath, "access-codes/new")} className="btn btn-primary">
               Create a campaign
             </Link>
           ) : undefined
@@ -65,7 +67,7 @@ export default function Campaigns({ loaderData }: Route.ComponentProps) {
           title="No campaigns yet"
           action={
             hasPermission(role, "codes.create")
-              ? { label: "Create a campaign", to: "/admin/access-codes/new" }
+              ? { label: "Create a campaign", to: adminUrl(adminPath, "access-codes/new") }
               : undefined
           }
         >
@@ -93,7 +95,10 @@ export default function Campaigns({ loaderData }: Route.ComponentProps) {
               {loaderData.campaigns.map((c) => (
                 <tr key={c.id}>
                   <td>
-                    <Link to={`/admin/access-codes/${c.id}`} style={{ fontWeight: 500 }}>
+                    <Link
+                      to={adminUrl(adminPath, `access-codes/${c.id}`)}
+                      style={{ fontWeight: 500 }}
+                    >
                       {c.name}
                     </Link>
                     {c.targetCohort && (

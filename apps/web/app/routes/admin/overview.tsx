@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import { adminUrl, useAdminPath } from "./admin-path";
 import type { Route } from "./+types/overview";
 import { call } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
@@ -72,6 +73,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export default function AdminOverview({ loaderData }: Route.ComponentProps) {
+  const adminPath = useAdminPath();
   const o = loaderData.overview;
 
   if (!o) {
@@ -170,7 +172,9 @@ export default function AdminOverview({ loaderData }: Route.ComponentProps) {
                   o.credits.byCampaign.map((c) => (
                     <tr key={c.campaignId}>
                       <td>
-                        <Link to={`/admin/access-codes/${c.campaignId}`}>{c.name}</Link>
+                        <Link to={adminUrl(adminPath, `access-codes/${c.campaignId}`)}>
+                          {c.name}
+                        </Link>
                       </td>
                       <td>
                         <Pill
@@ -250,7 +254,7 @@ export default function AdminOverview({ loaderData }: Route.ComponentProps) {
             </ul>
           )}
           <p style={{ marginTop: "1rem", fontSize: "var(--text-fine)" }}>
-            <Link to="/admin/security">All security events</Link>
+            <Link to={adminUrl(adminPath, "security")}>All security events</Link>
           </p>
         </section>
       </div>
@@ -286,7 +290,7 @@ export default function AdminOverview({ loaderData }: Route.ComponentProps) {
           </div>
         )}
         <p style={{ marginTop: "1rem", fontSize: "var(--text-fine)" }}>
-          <Link to="/admin/audit">Full audit log</Link>
+          <Link to={adminUrl(adminPath, "audit")}>Full audit log</Link>
         </p>
       </section>
 

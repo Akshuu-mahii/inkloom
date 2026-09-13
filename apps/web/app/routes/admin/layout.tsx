@@ -1,9 +1,10 @@
-import { Link, NavLink, Outlet, redirect } from "react-router";
+import { data, Link, NavLink, Outlet } from "react-router";
 import type { Route } from "./+types/layout";
 import { Logo } from "../../components/logo";
 import { Notice } from "../../components/ui";
 import { call, type Me } from "../../lib/api";
-import { hasPermission, isAdminRole, toRole, type Permission } from "@inkloom/core/rbac";
+import { servicesContext } from "../../lib/context";
+import { hasPermission, toRole, type Permission } from "@inkloom/core/rbac";
 
 /**
  * Admin shell.
@@ -22,34 +23,98 @@ import { hasPermission, isAdminRole, toRole, type Permission } from "@inkloom/co
  * The navigation is filtered by permission, so a `support` user is not shown
  * links to pages that would refuse them. That is UX, not security.
  */
-export async function loader({ request }: Route.LoaderArgs) {
+/**
+ * One response for every way of not being allowed in.
+ *
+ * Signed out, signed in as an ordinary user, holding a staff role but not the
+ * owner, or staff who have not enrolled a second factor — all four get this,
+ * byte for byte, with a 403 and no loader data. Distinguishing them would hand
+ * a prober a free oracle: "wrong password" versus "not an admin" versus "not
+ * the owner" maps out both the gate and who sits behind it.
+ *
+ * It carries no navigation, no account details and no hint of what is behind
+ * it. `restricted: true` is the ONLY thing the network response contains, so
+ * there is nothing to read out of the payload either.
+ */
+function restricted(): never {
+  throw data({ restricted: true } as const, {
+    status: 403,
+    headers: { "cache-control": "no-store" },
+  });
+}
+
+export async function loader({ request, context }: Route.LoaderArgs) {
+  const { config } = context.get(servicesContext);
   const result = await call<Me>("/me", { request });
 
-  if (result.status === 401 || !result.data) {
-    /*
-     * The PAGE path, not the data path. React Router appends `.data` when it
-     * fetches a route's data client-side, so without this the address bar shows
-     * `?next=%2Fapp%2Fsessions.data` and sign-in lands on raw JSON.
-     */
-    const path = new URL(request.url).pathname;
-    const next = path.endsWith(".data") ? path.slice(0, -".data".length) : path;
-    throw redirect(`/auth/login?next=${encodeURIComponent(next)}`);
-  }
+  if (result.status === 401 || !result.data) restricted();
 
   const me = result.data;
-  const role = toRole(me.role);
 
-  /**
-   * A non-admin is sent to the ordinary dashboard rather than shown a 403.
+  /*
+   * One flag, computed server-side, covering role + owner + 2FA together.
    *
-   * The admin area's existence is not a secret — it is at a guessable URL — but
-   * there is no reason to confirm to a prober that they found something real.
+   * This is the page-level courtesy gate; the API re-checks every part of it
+   * and is the actual control. It matters anyway: without it the console's
+   * shell would render for anyone signed in, and a shell whose every data call
+   * then fails is both a worse experience and a much louder signal that
+   * something real is here.
    */
-  if (!isAdminRole(role)) {
-    throw redirect("/app");
-  }
+  if (!me.canAccessAdmin) restricted();
 
-  return { me, role, twoFactorReady: me.twoFactorEnabled };
+  /*
+   * The console's own mount point, handed to the component.
+   *
+   * Every link below is built from this rather than a literal "/admin". With a
+   * secret ADMIN_PATH configured, a hardcoded link would point at the decoy
+   * that now returns 404 — so the navigation would break for the one person
+   * allowed to use it, and only in production, where the secret is set.
+   */
+  return {
+    me,
+    role: toRole(me.role),
+    twoFactorReady: me.twoFactorEnabled,
+    adminPath: config.ADMIN_PATH,
+  };
+}
+
+/**
+ * What an unauthorized visitor sees.
+ *
+ * Deliberately empty of information: no product name beyond the mark, no
+ * navigation, no mention of an admin area, no way to tell whether the address
+ * is real. Someone who arrived by guessing learns nothing; the owner, who knows
+ * where they are, will recognise it as a session that needs re-establishing.
+ */
+export function ErrorBoundary() {
+  return (
+    <main className="restricted-shell">
+      <div className="restricted-card">
+        <Logo size={34} />
+        <h1>Restricted</h1>
+        <p>
+          This area requires authorisation. If you believe you should have access, sign in and try
+          again.
+        </p>
+        <Link to="/" className="btn btn-outline">
+          Return to Inkloom
+        </Link>
+      </div>
+      <style>{`
+        .restricted-shell {
+          min-height: 70vh; display: grid; place-items: center; padding: 3rem 1.5rem;
+        }
+        .restricted-card {
+          max-width: 26rem; text-align: center;
+          display: flex; flex-direction: column; align-items: center; gap: 1rem;
+        }
+        .restricted-card h1 {
+          font-size: 1.5rem; margin: 0; letter-spacing: -0.01em;
+        }
+        .restricted-card p { margin: 0; color: var(--color-muted); }
+      `}</style>
+    </main>
+  );
 }
 
 interface NavItem {
@@ -59,20 +124,21 @@ interface NavItem {
   end?: boolean;
 }
 
+/** Paths are relative to the console's mount point, never absolute. */
 const NAV: NavItem[] = [
-  { to: "/admin", label: "Overview", permission: "admin.access", end: true },
-  { to: "/admin/users", label: "Users", permission: "users.read" },
-  { to: "/admin/access-codes", label: "Access codes", permission: "codes.read" },
-  { to: "/admin/credits", label: "Credits", permission: "credits.read" },
-  { to: "/admin/support", label: "Support", permission: "support.read" },
-  { to: "/admin/audit", label: "Audit log", permission: "audit.read" },
-  { to: "/admin/security", label: "Security", permission: "security.read" },
-  { to: "/admin/settings", label: "Settings", permission: "settings.read" },
-  { to: "/admin/system", label: "System", permission: "settings.read" },
+  { to: "", label: "Overview", permission: "admin.access", end: true },
+  { to: "users", label: "Users", permission: "users.read" },
+  { to: "access-codes", label: "Access codes", permission: "codes.read" },
+  { to: "credits", label: "Credits", permission: "credits.read" },
+  { to: "support", label: "Support", permission: "support.read" },
+  { to: "audit", label: "Audit log", permission: "audit.read" },
+  { to: "security", label: "Security", permission: "security.read" },
+  { to: "settings", label: "Settings", permission: "settings.read" },
+  { to: "system", label: "System", permission: "settings.read" },
 ];
 
 export default function AdminLayout({ loaderData }: Route.ComponentProps) {
-  const { me, role, twoFactorReady } = loaderData;
+  const { me, role, twoFactorReady, adminPath } = loaderData;
 
   if (!twoFactorReady) {
     return (
@@ -108,7 +174,7 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
       <header className="admin-bar">
         <div className="admin-bar-inner">
           <div style={{ display: "flex", alignItems: "center", gap: "0.875rem" }}>
-            <Link to="/admin" style={{ textDecoration: "none" }} aria-label="Inkloom admin">
+            <Link to={adminPath} style={{ textDecoration: "none" }} aria-label="Inkloom admin">
               <Logo size={18} monochrome />
             </Link>
             <span className="admin-tag">Admin</span>
@@ -130,7 +196,11 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
           <ul>
             {visible.map((item) => (
               <li key={item.to}>
-                <NavLink to={item.to} end={item.end} className="admin-nav-link">
+                <NavLink
+                  to={item.to ? `${adminPath}/${item.to}` : adminPath}
+                  end={item.end}
+                  className="admin-nav-link"
+                >
                   {item.label}
                 </NavLink>
               </li>

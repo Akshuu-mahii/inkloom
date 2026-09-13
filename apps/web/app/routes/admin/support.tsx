@@ -1,4 +1,5 @@
 import { Form, Link, useActionData, useNavigation, useSearchParams } from "react-router";
+import { adminUrl, useAdminPath } from "./admin-path";
 import type { Route } from "./+types/support";
 import { call, type Paged } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
@@ -54,6 +55,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function AdminSupport({ loaderData }: Route.ComponentProps) {
+  const adminPath = useAdminPath();
   const [params] = useSearchParams();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
@@ -156,7 +158,11 @@ export default function AdminSupport({ loaderData }: Route.ComponentProps) {
                   color: "var(--color-muted)",
                 }}
               >
-                {r.userId ? <Link to={`/admin/users/${r.userId}`}>{r.email}</Link> : r.email}
+                {r.userId ? (
+                  <Link to={adminUrl(adminPath, `users/${r.userId}`)}>{r.email}</Link>
+                ) : (
+                  r.email
+                )}
                 {r.name ? ` · ${r.name}` : ""}
               </p>
 
@@ -221,7 +227,7 @@ export default function AdminSupport({ loaderData }: Route.ComponentProps) {
       {loaderData.nextCursor && (
         <p style={{ marginTop: "1.5rem" }}>
           <Link
-            to={`/admin/support?cursor=${encodeURIComponent(loaderData.nextCursor)}`}
+            to={adminUrl(adminPath, `support?cursor=${encodeURIComponent(loaderData.nextCursor)}`)}
             className="btn btn-quiet"
           >
             Older requests
