@@ -210,3 +210,53 @@ describe("what the sweep must never touch", () => {
     expect(second.totalRemoved).toBe(0);
   });
 });
+
+describe("one failing step must not abandon the others", () => {
+  it("keeps sweeping after a step throws, and reports which one failed", async () => {
+    /*
+     * The exact failure this guards against: a lock contention on analytics
+     * meaning expired export payloads survive another day. Structuring the
+     * sweep so an early error skips everything after it would make one
+     * transient problem into a retention breach.
+     *
+     * The failure is injected by making ONE table unreadable, which is as close
+     * to a real transient database error as a test can get without mocking the
+     * driver — and mocking it would test the mock.
+     */
+    const user = await createTestUser(t.db);
+    await t.db.execute(sql`
+      INSERT INTO data_export_requests (id, user_id, status, payload, created_at, expires_at)
+      VALUES (${newId("exp")}, ${user.id}, 'ready', '{"secret":"x"}'::jsonb,
+              ${new Date(now.getTime() - 25 * 3600 * 1000)}, ${new Date(now.getTime() - 3600 * 1000)})
+    `);
+    await t.db.execute(sql`
+      INSERT INTO analytics_events (id, name, created_at)
+      VALUES (${newId("evt")}, 'dashboard_viewed', ${daysAgo(RETENTION_DAYS.analyticsEvents + 1)})
+    `);
+
+    // Break exactly one step.
+    await t.db.execute(sql`ALTER TABLE analytics_events RENAME TO analytics_events_hidden`);
+
+    let result;
+    try {
+      result = await runRetentionSweep(t.db, silentLogger, now);
+    } finally {
+      await t.db.execute(sql`ALTER TABLE analytics_events_hidden RENAME TO analytics_events`);
+    }
+
+    const failed = result.steps.filter((s) => !s.ok).map((s) => s.name);
+    expect(failed, "exactly the broken step is reported").toEqual(["analytics_events"]);
+    expect(result.failed).toBe(1);
+
+    // ...and the step AFTER the failure still ran, plus the one before it.
+    const names = result.steps.map((s) => s.name);
+    expect(names).toContain("support_requests");
+    expect(names).toContain("rate_limit_events");
+
+    // The export payload — the thing that actually matters — is gone.
+    const row = await t.db.execute<{ has_payload: boolean }>(
+      sql`SELECT (payload IS NOT NULL) AS has_payload FROM data_export_requests`,
+    );
+    expect(row.rows[0]?.has_payload, "a broken step must not block retention").toBe(false);
+  });
+});

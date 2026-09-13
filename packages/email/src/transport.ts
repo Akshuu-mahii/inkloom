@@ -9,6 +9,56 @@
  */
 import type { EmailTransport, SendEmailInput, SendResult } from "./types";
 
+/**
+ * How long an email provider gets before we give up on it.
+ *
+ * Ten seconds, because sending is on the critical path of signup and password
+ * reset: a caller is waiting on a page that has already told them the mail is
+ * coming.
+ */
+const SEND_TIMEOUT_MS = 10_000;
+
+/**
+ * `fetch` that cannot hang forever.
+ *
+ * A provider returning an ERROR was already handled — the mailer records the
+ * failure and returns rather than throwing, so a Resend outage degrades to
+ * "signup succeeded, mail did not". A provider that simply never answers was
+ * not: `await fetch(...)` with no signal blocks until the Worker's own duration
+ * limit, so every signup and every reset would hang behind one slow dependency
+ * until the isolate was killed. That is the difference between a degraded
+ * feature and an outage, and it is the whole reason this exists.
+ *
+ * The timer is always cleared, including on the error path — a pending timer
+ * would keep the isolate alive past the response for no reason.
+ */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs = SEND_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Turn an aborted request into the same shape every other failure has. */
+function describeSendError(error: unknown, provider: string): SendResult {
+  const aborted = error instanceof Error && error.name === "AbortError";
+  return {
+    ok: false,
+    error: aborted
+      ? `${provider} did not respond within ${SEND_TIMEOUT_MS / 1000}s`
+      : error instanceof Error
+        ? error.message
+        : String(error),
+  };
+}
+
 /** Development: delivers into Mailpit's web UI at http://localhost:8025 */
 export class MailpitTransport implements EmailTransport {
   readonly name = "mailpit";
@@ -17,7 +67,7 @@ export class MailpitTransport implements EmailTransport {
 
   async send(input: SendEmailInput, from: string): Promise<SendResult> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/v1/send`, {
+      const response = await fetchWithTimeout(`${this.baseUrl}/api/v1/send`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -42,7 +92,7 @@ export class MailpitTransport implements EmailTransport {
       const data = (await response.json()) as { ID?: string };
       return { ok: true, providerMessageId: data.ID };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : "mailpit unreachable" };
+      return describeSendError(error, "Mailpit");
     }
   }
 }
@@ -55,7 +105,7 @@ export class ResendTransport implements EmailTransport {
 
   async send(input: SendEmailInput, from: string): Promise<SendResult> {
     try {
-      const response = await fetch("https://api.resend.com/emails", {
+      const response = await fetchWithTimeout("https://api.resend.com/emails", {
         method: "POST",
         headers: {
           // Never logged: the logger redacts any key named `authorization`.
@@ -85,7 +135,7 @@ export class ResendTransport implements EmailTransport {
       }
       return { ok: true, providerMessageId: data.id };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : "resend unreachable" };
+      return describeSendError(error, "Resend");
     }
   }
 }
