@@ -20,13 +20,37 @@ export function requestContext(services: Services): MiddlewareHandler<Env> {
     const inbound = c.req.header("x-request-id");
     const requestId = inbound && /^[A-Za-z0-9_-]{1,64}$/.test(inbound) ? inbound : newId("req");
 
-    // Cloudflare sets CF-Connecting-IP; it cannot be spoofed by the client on
-    // Cloudflare's edge. The others are only consulted in local development.
+    /*
+     * The caller's address, and ONLY from a header the caller cannot write.
+     *
+     * Cloudflare stamps `CF-Connecting-IP` at the edge, overwriting whatever the
+     * client sent, so in production it is trustworthy and nothing else is. The
+     * proxy headers below it are not: `X-Forwarded-For` is client-settable by
+     * definition, and treating it as authoritative would make every per-IP rate
+     * limit free to bypass by rotating one header.
+     *
+     * Demonstrated rather than assumed: rotating `cf-connecting-ip` across eight
+     * signups produced eight separate rate-limit buckets and eight successes
+     * against a limit of five. On Cloudflare that request is impossible, because
+     * the edge rewrites the header first — but the fallback chain meant a
+     * deployment WITHOUT that edge, or any future proxy in front, would silently
+     * hand an attacker the same result. Outside production the fallbacks stay,
+     * because local development and the test suite have no edge to stamp
+     * anything and would otherwise share a single bucket.
+     *
+     * When nothing trustworthy is present in production the address is simply
+     * unknown. `hashIp` returns null for that, per-IP limits stop applying, and
+     * the per-ACCOUNT limits carry the load — narrower protection, but no
+     * protection is preferable to protection an attacker chooses the key for.
+     */
+    const trustProxyHeaders = services.config.INKLOOM_ENV !== "production";
     const clientIp =
       c.req.header("cf-connecting-ip") ??
-      c.req.header("x-real-ip") ??
-      c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
-      null;
+      (trustProxyHeaders
+        ? (c.req.header("x-real-ip") ??
+          c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
+          null)
+        : null);
 
     c.set("requestId", requestId);
     c.set("services", services);

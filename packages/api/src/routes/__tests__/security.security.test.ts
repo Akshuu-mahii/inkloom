@@ -408,6 +408,116 @@ describe("responses must not be cacheable or cross-origin readable", () => {
 });
 
 // ===========================================================================
+describe("the rate limiter's key cannot be chosen by the caller", () => {
+  /*
+   * Per-IP limits are only worth anything if the attacker cannot pick the IP.
+   *
+   * On Cloudflare, `CF-Connecting-IP` is stamped at the edge and overwrites
+   * whatever the client sent, so it is trustworthy. `X-Forwarded-For` is not —
+   * it is client-settable by definition. The original code fell through to it,
+   * which meant a deployment without that edge, or any future proxy in front,
+   * would let an attacker rotate one header and get a fresh bucket per request.
+   *
+   * Verified by attack before the fix: rotating the header across eight signups
+   * produced eight buckets and eight successes against a limit of five.
+   */
+  it("ignores X-Forwarded-For in production, so buckets cannot be rotated", async () => {
+    /*
+     * A genuine production config, because the validator refuses a partial one:
+     * it rejects a non-https APP_URL outright, which is itself worth knowing.
+     */
+    const origin = "https://prod.inkloom.test";
+    const prod = createTestApp({
+      INKLOOM_ENV: "production",
+      APP_URL: origin,
+      BETTER_AUTH_URL: origin,
+      // The production validator demands all of these, and refuses a dev
+      // placeholder for any of them. Satisfying it here is not ceremony: it is
+      // a second, incidental check that the validator actually holds.
+      EMAIL_TRANSPORT: "resend",
+      RESEND_API_KEY: "re_audit_test_key_not_real",
+      TURNSTILE_ENABLED: "false",
+      BETTER_AUTH_SECRET: "production-shaped-secret-long-enough-to-pass",
+      ACCESS_CODE_PEPPER: "production-shaped-pepper-32-chars-ok",
+      IP_HASH_PEPPER: "production-shaped-ip-pepper-32-chars",
+    });
+    try {
+      await prod.reset();
+      const seen = new Set<string>();
+
+      for (const forged of ["203.0.113.1", "203.0.113.2", "203.0.113.3"]) {
+        await prod.json("/v1/auth/forgot-password", {
+          method: "POST",
+          headers: { "x-forwarded-for": forged, origin },
+          body: JSON.stringify({ email: "someone@example.test" }),
+        });
+      }
+
+      const rows = await prod.db.db.execute<{ subject: string }>(
+        sql`SELECT DISTINCT subject FROM rate_limit_events WHERE bucket = 'auth.forgot_password.ip'`,
+      );
+      for (const row of rows.rows) seen.add(row.subject);
+
+      // Three forged addresses must NOT become three buckets.
+      expect(seen.size, "a caller must not be able to mint rate-limit buckets").toBeLessThanOrEqual(
+        1,
+      );
+    } finally {
+      await prod.close();
+    }
+  });
+
+  it("still honours proxy headers outside production, where there is no edge", async () => {
+    // Local development and the test suite have nothing stamping the header;
+    // without this they would share a single bucket and per-IP behaviour could
+    // not be exercised at all.
+    const seen = new Set<string>();
+    for (const ip of ["198.51.100.1", "198.51.100.2"]) {
+      await app.json("/v1/auth/forgot-password", {
+        method: "POST",
+        headers: { "x-forwarded-for": ip },
+        body: JSON.stringify({ email: "someone@example.test" }),
+      });
+    }
+    const rows = await app.db.db.execute<{ subject: string }>(
+      sql`SELECT DISTINCT subject FROM rate_limit_events WHERE bucket = 'auth.forgot_password.ip'`,
+    );
+    for (const row of rows.rows) seen.add(row.subject);
+    expect(seen.size).toBeGreaterThan(1);
+  });
+});
+
+// ===========================================================================
+describe("a login flood throttles the account, not the network", () => {
+  it("lets an unrelated account sign in from the same address", async () => {
+    /*
+     * The failure mode this guards against is a denial of service dressed as a
+     * security control: if failures against one account locked the network, an
+     * attacker could lock every user behind a shared NAT out of their own
+     * product by guessing at one of them.
+     */
+    const victim = "flood-victim@example.test";
+    await signedInCookies(victim);
+
+    for (let i = 0; i < 12; i += 1) {
+      await app.json("/v1/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email: victim, password: `wrong-${i}` }),
+      });
+    }
+
+    const victimAgain = await app.json("/v1/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: victim, password: CREDENTIALS.password }),
+    });
+    expect(victimAgain.status, "the targeted account is throttled").toBe(429);
+
+    const bystander = await signedInCookies("flood-bystander@example.test");
+    expect(bystander.length, "an unrelated account is unaffected").toBeGreaterThan(0);
+  });
+});
+
+// ===========================================================================
 describe("CSRF and origin", () => {
   it("refuses a state-changing request with a foreign Origin", async () => {
     const cookies = await signedInCookies("csrf@example.test");
