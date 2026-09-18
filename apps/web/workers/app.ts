@@ -97,13 +97,58 @@ const PRIVATE_PATHS = ["/app", "/admin"];
  */
 
 /** Open a per-request database client. See the connection-lifetime note above. */
+/**
+ * Is this database on a network only we can reach?
+ *
+ * Decides whether to demand TLS. A managed database — Neon, or anything behind
+ * Hyperdrive — is reached across the public internet and must be encrypted. One
+ * on the loopback or a private network is a developer's docker container or a
+ * CI runner's, where there is no TLS to negotiate and demanding it only breaks
+ * the connection.
+ *
+ * Private ranges are included, not just loopback, because a Worker in local dev
+ * cannot open a connection to a loopback address at all: miniflare runs the
+ * Worker behind a network policy that permits `public` and `private` addresses
+ * and NOT `local`, so 127.0.0.1 is refused before it leaves the runtime. CI
+ * therefore points the Worker at the runner's own private address, and that
+ * address needs the same "no TLS" answer as loopback.
+ *
+ * Deliberately conservative: an address that is not demonstrably private gets
+ * TLS. Getting this wrong in the other direction would send credentials in
+ * clear text across a network we do not control.
+ */
+export function isPrivateAddress(connectionString: string): boolean {
+  let host: string;
+  try {
+    host = new URL(connectionString).hostname;
+  } catch {
+    // Unparseable: assume the internet and keep TLS on.
+    return false;
+  }
+
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (host === "::1" || host === "[::1]") return true;
+
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!v4) return false;
+
+  const [a, b] = [Number(v4[1]), Number(v4[2])];
+  return (
+    a === 127 || // loopback
+    a === 10 || // 10.0.0.0/8
+    (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+    (a === 192 && b === 168) || // 192.168.0.0/16
+    (a === 169 && b === 254) // link-local
+  );
+}
+
 function connect(env: WorkerEnv) {
   const connectionString = env.HYPERDRIVE?.connectionString ?? (env.DATABASE_URL as string);
   if (!connectionString) {
     throw new Error("No database connection: bind HYPERDRIVE or set DATABASE_URL.");
   }
 
-  const isLocal = connectionString.includes("localhost") || connectionString.includes("127.0.0.1");
+  const isLocal = isPrivateAddress(connectionString);
 
   return createDb({
     connectionString,

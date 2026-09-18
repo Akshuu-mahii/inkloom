@@ -313,8 +313,21 @@ jobs:
       # same configuration a developer has locally rather than a CI-only one.
       - name: Give the Worker its environment
         run: |
-          cat > apps/web/.dev.vars <<'VARS'
-          DATABASE_URL=postgres://inkloom:inkloom_ci@127.0.0.1:5432/inkloom
+          # The runner's own PRIVATE address, not 127.0.0.1, and that is the
+          # whole reason the Worker could not reach the database.
+          #
+          # miniflare runs the Worker behind a network policy that permits
+          # `public` and `private` addresses and not `local`, so every
+          # connection to loopback was refused inside the runtime before it
+          # reached postgres — instantly, with "connect(): Connection refused",
+          # which reads exactly like a database that is not running. Node was
+          # never subject to that policy, so migrations and the seed worked
+          # perfectly and made the database look healthy.
+          RUNNER_IP=$(hostname -I | awk '{print $1}')
+          echo "Worker will reach postgres at $RUNNER_IP"
+
+          cat > apps/web/.dev.vars <<VARS
+          DATABASE_URL=postgres://inkloom:inkloom_ci@${RUNNER_IP}:5432/inkloom
           BETTER_AUTH_SECRET=ci-only-secret-not-used-anywhere-else-000000
           ACCESS_CODE_PEPPER=ci-only-access-code-pepper-32-chars-x
           IP_HASH_PEPPER=ci-only-ip-hash-pepper-32-characters
