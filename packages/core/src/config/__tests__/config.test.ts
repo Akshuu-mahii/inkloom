@@ -139,6 +139,8 @@ describe("staging is held to the same standard as production", () => {
     ...productionEnv(),
     INKLOOM_ENV: "staging",
     APP_URL: "https://staging.inkloom.art",
+    // Required in staging; see the block below for why.
+    EMAIL_ALLOWLIST: "owner@inkloom.art",
   });
 
   it("loads when fully configured", () => {
@@ -209,5 +211,111 @@ describe("Google OAuth is only enabled when both halves are present", () => {
     ["both", { GOOGLE_CLIENT_ID: "id", GOOGLE_CLIENT_SECRET: "secret" }, true],
   ])("%s", (_label, override, expected) => {
     expect(loadWith(override).googleOAuthEnabled).toBe(expected);
+  });
+});
+
+// ===========================================================================
+
+/**
+ * Staging must be told who it may email, and must refuse to start otherwise.
+ *
+ * It sends through production's Resend account and production's verified
+ * domain. An unguarded staging environment therefore mails real strangers, and
+ * the bounces, complaints and reputation damage land on production — the one
+ * asset that cannot be rebuilt in an afternoon. The cost of being told is one
+ * line of configuration; the cost of not being told is a sending domain.
+ */
+describe("staging cannot email the public", () => {
+  const stagingEnv = () => ({
+    ...productionEnv(),
+    INKLOOM_ENV: "staging",
+    APP_URL: "https://staging.inkloom.art",
+    EMAIL_ALLOWLIST: "owner@inkloom.art",
+  });
+
+  it("refuses to boot with neither an allowlist nor an owner", () => {
+    const { EMAIL_ALLOWLIST: _a, OWNER_EMAIL: _b, ...bare } = stagingEnv();
+
+    expect(() => loadConfig(bare)).toThrow(/EMAIL_ALLOWLIST is required in staging/);
+  });
+
+  it("accepts OWNER_EMAIL as the allowlist, for the one-person case", () => {
+    const { EMAIL_ALLOWLIST: _omitted, ...withOwner } = stagingEnv();
+    const config = loadConfig({ ...withOwner, OWNER_EMAIL: "me@example.com" });
+
+    expect(config.emailAllowlist).toContain("me@example.com");
+  });
+
+  it("parses a comma-separated list, lower-cased and de-duplicated", () => {
+    const config = loadConfig({
+      ...stagingEnv(),
+      EMAIL_ALLOWLIST: "One@Example.com, one@example.com , @inkloom.art",
+      OWNER_EMAIL: "one@example.com",
+    });
+
+    expect(config.emailAllowlist).toEqual(["one@example.com", "@inkloom.art"]);
+  });
+
+  it("leaves production unrestricted, because a public product emails the public", () => {
+    const config = loadConfig({ ...productionEnv(), EMAIL_ALLOWLIST: "someone@example.com" });
+
+    expect(config.isProduction).toBe(true);
+    expect(config.emailAllowlist).toEqual([]);
+  });
+});
+
+// ===========================================================================
+
+/**
+ * A half-configured Access gate is worse than none: it looks like a control and
+ * enforces nothing.
+ */
+describe("the Cloudflare Access gate", () => {
+  const stagingEnv = () => ({
+    ...productionEnv(),
+    INKLOOM_ENV: "staging",
+    APP_URL: "https://staging.inkloom.art",
+    EMAIL_ALLOWLIST: "owner@inkloom.art",
+  });
+
+  it("is off when neither variable is set", () => {
+    expect(loadConfig(stagingEnv()).accessGate).toBeNull();
+  });
+
+  it("refuses a team domain with no audience", () => {
+    expect(() =>
+      loadConfig({ ...stagingEnv(), ACCESS_TEAM_DOMAIN: "inkloom.cloudflareaccess.com" }),
+    ).toThrow(/must be set together/);
+  });
+
+  it("refuses an audience with no team domain", () => {
+    expect(() => loadConfig({ ...stagingEnv(), ACCESS_AUD: "abc123" })).toThrow(
+      /must be set together/,
+    );
+  });
+
+  it("refuses a URL where a hostname belongs", () => {
+    expect(() =>
+      loadConfig({
+        ...stagingEnv(),
+        ACCESS_TEAM_DOMAIN: "https://inkloom.cloudflareaccess.com",
+        ACCESS_AUD: "abc123",
+      }),
+    ).toThrow(/must be a hostname/);
+  });
+
+  it("gates on the same addresses it is allowed to email", () => {
+    const config = loadConfig({
+      ...stagingEnv(),
+      EMAIL_ALLOWLIST: "me@example.com",
+      ACCESS_TEAM_DOMAIN: "inkloom.cloudflareaccess.com",
+      ACCESS_AUD: "abc123",
+    });
+
+    expect(config.accessGate).toEqual({
+      teamDomain: "inkloom.cloudflareaccess.com",
+      aud: "abc123",
+      allowedEmails: ["me@example.com"],
+    });
   });
 });

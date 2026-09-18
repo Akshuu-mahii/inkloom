@@ -20,6 +20,7 @@ import { TurnstileVerifier } from "@inkloom/core/security";
 import { Mailer } from "@inkloom/core/notifications";
 import { createMonitoring, sentryTransport } from "@inkloom/core";
 import {
+  AllowlistTransport,
   ConsoleTransport,
   DevelopmentMailRouter,
   MailpitTransport,
@@ -51,16 +52,37 @@ export * from "./lib/response";
 export * as schemas from "./schemas/index";
 
 /** Build the transport the configuration asks for. */
-export function createTransport(config: AppConfig): EmailTransport {
+export function createTransport(config: AppConfig, logger?: Logger): EmailTransport {
   switch (config.EMAIL_TRANSPORT) {
     case "resend": {
       const resend = new ResendTransport(config.RESEND_API_KEY ?? "");
+      /*
+       * Production sends to whoever asked. Nothing else does.
+       *
+       * Staging shares this Resend account and this verified domain, so an
+       * address typed into a staging form reaches a real person and the bounce,
+       * the complaint and the reputation all land on production. The allowlist
+       * is the boundary; `loadConfig` refuses to boot a staging deploy that
+       * declares neither an allowlist nor an owner, so it cannot be empty by
+       * neglect — only on purpose.
+       */
+      if (config.isProduction) return resend;
+
+      if (config.INKLOOM_ENV !== "development") {
+        return new AllowlistTransport(resend, config.emailAllowlist, (to, template) => {
+          // Logged, not swallowed: a staging flow that seems to send no mail
+          // should be one grep away from its reason.
+          logger?.info("email_suppressed_not_allowlisted", {
+            template,
+            domain: to.split("@").pop() ?? "",
+            allowlistSize: config.emailAllowlist.length,
+          });
+        });
+      }
+
       // In development, keep RFC-reserved test addresses local so the E2E
       // suite neither fails on rejected recipients nor spends the daily send
-      // quota. Real addresses still go to the real provider. Staging and
-      // production route everything to Resend, with no local fallback to
-      // silently swallow a message.
-      if (config.INKLOOM_ENV !== "development") return resend;
+      // quota. Real addresses still go to the real provider.
       return new DevelopmentMailRouter(
         resend,
         new MailpitTransport(`http://${config.MAILPIT_HOST}:8025`),
@@ -140,6 +162,27 @@ export function configSource(env: Record<string, unknown>): Record<string, unkno
   return { ...env, DATABASE_URL: hyperdrive.connectionString };
 }
 
+/**
+ * The parsed configuration for this environment, without building services.
+ *
+ * The Worker needs a few decisions BEFORE it opens a database client — whether
+ * this environment is gated, which addresses it may email — and building the
+ * whole service graph to read two strings would mean paying for a connection on
+ * a request that is about to be refused. Shares the per-isolate cache with
+ * `buildServices`, so this is a map lookup after the first call.
+ */
+export function resolveConfig(env: Record<string, unknown>): AppConfig {
+  /*
+   * `cachedConfig(env)`, NOT `cachedConfig(configSource(env))`. The cache is a
+   * WeakMap keyed on the env object's identity, and `configSource` returns a
+   * FRESH object whenever it has to derive DATABASE_URL from the Hyperdrive
+   * binding — which is every deployed request. Passing that in would key the
+   * cache on a new object each time and re-parse the whole configuration per
+   * request, silently. `cachedConfig` calls `configSource` itself.
+   */
+  return cachedConfig(env);
+}
+
 export function buildServices(options: BuildServicesOptions): Services {
   const config = cachedConfig(options.env);
 
@@ -150,7 +193,7 @@ export function buildServices(options: BuildServicesOptions): Services {
       context: { env: config.INKLOOM_ENV, release: config.INKLOOM_RELEASE },
     });
 
-  const transport = options.transport ?? createTransport(config);
+  const transport = options.transport ?? createTransport(config, logger);
 
   /*
    * Resend's shared sender only reaches the account owner.

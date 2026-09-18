@@ -42,6 +42,8 @@ interface Probe {
   status: number;
   body: string;
   ms: number;
+  /** Lower-cased, because a retry hint is only useful if it can be read. */
+  headers: Record<string, string>;
 }
 
 async function probe(path: string, init: RequestInit = {}): Promise<Probe> {
@@ -52,9 +54,19 @@ async function probe(path: string, init: RequestInit = {}): Promise<Probe> {
       headers: { "content-type": "application/json", origin: BASE, ...(init.headers ?? {}) },
       signal: AbortSignal.timeout(30_000),
     });
-    return { status: r.status, body: (await r.text()).slice(0, 4000), ms: Date.now() - started };
+    return {
+      status: r.status,
+      body: (await r.text()).slice(0, 4000),
+      ms: Date.now() - started,
+      headers: Object.fromEntries(r.headers),
+    };
   } catch (error) {
-    return { status: 0, body: String(error).slice(0, 300), ms: Date.now() - started };
+    return {
+      status: 0,
+      body: String(error).slice(0, 300),
+      ms: Date.now() - started,
+      headers: {},
+    };
   }
 }
 
@@ -193,6 +205,28 @@ async function main() {
         r.status !== 0 && r.ms < 30_000,
         `status=${r.status} in ${r.ms}ms`,
       );
+      /*
+       * 503, not 500 — and this is the assertion that used to be missing.
+       *
+       * An unreachable database was reported as INTERNAL_ERROR, which claims
+       * the REQUEST is defective. During this very outage that told a user
+       * their password was wrong, denied every proxy and browser the licence to
+       * retry, and gave the uptime alert no way to tell a database failover
+       * from a bad deploy. The distinction only exists if something checks it.
+       */
+      const unauthenticated = r.status === 401 || r.status === 403;
+      check(
+        `${path} reports an outage (503), not a broken request (500)`,
+        unauthenticated || r.status === 503,
+        `status=${r.status}`,
+      );
+      if (r.status === 503) {
+        check(
+          `${path} tells the caller when to come back`,
+          Number(r.headers["retry-after"] ?? 0) > 0,
+          `retry-after=${r.headers["retry-after"] ?? "(absent)"}`,
+        );
+      }
     }
 
     const page = await probe("/");

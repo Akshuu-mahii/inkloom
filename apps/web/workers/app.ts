@@ -25,9 +25,16 @@
  * local handshake rather than a new round trip to Neon.
  */
 import { createRequestHandler, RouterContextProvider } from "react-router";
-import { buildServices, createApiApp } from "@inkloom/api";
+import { buildServices, createApiApp, resolveConfig } from "@inkloom/api";
 import { createDb } from "@inkloom/db/client";
-import { generateNonce, securityHeaders } from "@inkloom/core/security";
+import { createLogger } from "@inkloom/core/logger";
+import {
+  accessTokenFrom,
+  generateNonce,
+  isUngatedPath,
+  securityHeaders,
+  verifyAccessToken,
+} from "@inkloom/core/security";
 import { recordJobRun, RETENTION_JOB, runRetentionSweep } from "@inkloom/core/retention";
 import {
   captureSelfMeasuredUsage,
@@ -107,8 +114,66 @@ function connect(env: WorkerEnv) {
   });
 }
 
+/**
+ * Cloudflare Access, enforced here rather than assumed.
+ *
+ * An Access policy is attached to a HOSTNAME. Anything that reaches this Worker
+ * by another route — a workers.dev subdomain, a preview URL, a hostname added
+ * later — arrives with no Access in front of it, and a staging environment that
+ * everyone believes is private is then simply public. The failure is silent,
+ * which is what makes it worth a check at the origin.
+ *
+ * Runs BEFORE the database client is opened: a request that is about to be
+ * refused should not cost a connection.
+ */
+async function refuseUnlessAllowedIn(
+  request: Request,
+  env: WorkerEnv,
+  pathname: string,
+): Promise<Response | null> {
+  const gate = resolveConfig(env as Record<string, unknown>).accessGate;
+  if (!gate || isUngatedPath(pathname)) return null;
+
+  const token = accessTokenFrom(request);
+  const result = token
+    ? await verifyAccessToken(token, gate)
+    : ({ ok: false, reason: "no_token" } as const);
+
+  if (result.ok) return null;
+
+  /*
+   * 403 with a bare explanation, and deliberately no detail about WHY.
+   *
+   * The reason is genuinely useful when setting this up and genuinely useful to
+   * an attacker afterwards: "wrong_audience" says the gate is misconfigured,
+   * "email_not_allowed" confirms both that a valid Access login exists and that
+   * this environment is worth attacking. It goes to the log, which only the
+   * operator reads, and never into the response.
+   */
+  // Its own logger: the gate deliberately runs before services are built, so
+  // there is no request logger to borrow yet.
+  createLogger({ level: "info", context: { env: String(env.INKLOOM_ENV ?? "") } }).warn(
+    "access_gate_refused",
+    { reason: result.reason, path: pathname },
+  );
+
+  return new Response("Not authorised for this environment.", {
+    status: 403,
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "no-store",
+      // Nothing here is ever a shared-cache hit, and a proxy that cached one
+      // 403 would lock out the person who IS allowed in.
+      vary: "cookie, cf-access-jwt-assertion",
+    },
+  });
+}
+
 export default {
   async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
+    const refusal = await refuseUnlessAllowedIn(request, env, new URL(request.url).pathname);
+    if (refusal) return refusal;
+
     const { db, pool } = connect(env);
 
     const services = buildServices({ db, env: env as Record<string, unknown> });

@@ -14,7 +14,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { expect, test, type Page } from "@playwright/test";
-import { STRONG_PASSWORD, signUpAndVerify, uniqueEmail } from "./support";
+import { adminPath, STRONG_PASSWORD, signUpAndVerify, uniqueEmail } from "./support";
 import { secretFromUri, totp } from "./totp";
 
 const TABS = ["Activity", "Emails", "Performance", "Infrastructure"] as const;
@@ -83,7 +83,7 @@ test("every console tab opens when clicked, with no client-side error", async ({
   await enrolTwoFactor(page);
   bootstrapSuperAdmin(email);
 
-  await page.goto("/admin");
+  await page.goto(adminPath());
   await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
 
   for (const tab of TABS) {

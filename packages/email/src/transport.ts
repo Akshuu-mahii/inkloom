@@ -207,6 +207,84 @@ export function isUndeliverableTestAddress(address: string): boolean {
 }
 
 /**
+ * A recipient gate for environments that are not meant to email the public.
+ *
+ * Staging sends through the same Resend account and the same verified domain as
+ * production. Nothing about it is a sandbox: a signup there with a real address
+ * puts a real message in a real stranger's inbox, signed by the domain whose
+ * reputation production depends on. A mistyped fixture, a shared demo link, or
+ * anyone who finds the URL and signs up is enough — and the cost lands on the
+ * one asset that cannot be rebuilt quickly, which is deliverability.
+ *
+ * RFC-reserved addresses are already suppressed everywhere, but that only
+ * covers addresses that were never real. This covers the opposite case: an
+ * address that is real and simply is not ours.
+ *
+ * FAILS CLOSED. An empty allowlist suppresses every deliverable recipient
+ * rather than falling back to sending, because the failure mode of the other
+ * choice is the exact incident this exists to prevent. `loadConfig` refuses to
+ * boot a staging deploy that configures neither an allowlist nor an owner, so
+ * "closed" is a deliberate state rather than an accident.
+ */
+export class AllowlistTransport implements EmailTransport {
+  readonly name: string;
+  private readonly entries: string[];
+
+  constructor(
+    private readonly inner: EmailTransport,
+    entries: readonly string[],
+    /** Called when a message is dropped, so the decision is not invisible. */
+    private readonly onSuppressed?: (to: string, template: string) => void,
+  ) {
+    this.name = `allowlist(${inner.name})`;
+    this.entries = entries.map((e) => e.trim().toLowerCase()).filter(Boolean);
+  }
+
+  async send(input: SendEmailInput, from: string): Promise<SendResult> {
+    if (isAllowedRecipient(input.to, this.entries)) return this.inner.send(input, from);
+
+    this.onSuppressed?.(input.to, input.template);
+    /*
+     * Reported as a SUCCESS, deliberately, and matching how reserved addresses
+     * are already handled above. A failure here would be retried, would mark
+     * the address as bouncing in `email_events`, and would surface to the user
+     * as a broken signup — when nothing is broken and the message was withheld
+     * on purpose. The provider id records what actually happened.
+     */
+    return { ok: true, providerMessageId: `suppressed_not_allowlisted_${input.template}` };
+  }
+}
+
+/**
+ * Entries are matched as whole addresses, or as domains when written `@domain`.
+ *
+ * Plus-addressing is normalised away, so one real inbox listed once covers
+ * `you+signup@`, `you+admin@` and every other throwaway a tester invents. That
+ * is the difference between an allowlist people work with and one they turn
+ * off.
+ */
+export function isAllowedRecipient(address: string, entries: readonly string[]): boolean {
+  if (entries.length === 0) return false;
+
+  const clean = address.trim().toLowerCase();
+  const at = clean.lastIndexOf("@");
+  if (at <= 0) return false;
+
+  const domain = clean.slice(at + 1);
+  const local = clean.slice(0, at);
+  const plus = local.indexOf("+");
+  const canonical = `${plus === -1 ? local : local.slice(0, plus)}@${domain}`;
+
+  return entries.some((entry) => {
+    if (entry.startsWith("@")) {
+      const suffix = entry.slice(1);
+      return domain === suffix || domain.endsWith(`.${suffix}`);
+    }
+    return entry === clean || entry === canonical;
+  });
+}
+
+/**
  * Development-only routing between a real provider and the local catcher.
  *
  * Wanting real mail in a real inbox during development and wanting a test suite

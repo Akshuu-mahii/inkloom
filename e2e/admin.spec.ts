@@ -1,6 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { settled, signUpAndVerify, STRONG_PASSWORD, uniqueEmail } from "./support";
+import {
+  adminPath,
+  escapeForRegExp,
+  settled,
+  signUpAndVerify,
+  STRONG_PASSWORD,
+  uniqueEmail,
+} from "./support";
 import { secretFromUri, totp } from "./totp";
 
 /**
@@ -63,7 +70,7 @@ test.describe("admin access control", () => {
   }) => {
     await signUpAndVerify(page, uniqueEmail("plain"));
 
-    await page.goto("/admin");
+    await page.goto(adminPath());
     await settled(page);
 
     /*
@@ -106,7 +113,7 @@ test.describe("admin access control", () => {
     const email = await signUpAndVerify(page, uniqueEmail("noadmin2fa"));
     bootstrapSuperAdmin(email);
 
-    await page.goto("/admin");
+    await page.goto(adminPath());
     await settled(page);
 
     await expect(
@@ -154,13 +161,13 @@ test.describe("admin with two-factor", () => {
     await page.waitForTimeout(2500);
 
     // --- Overview -----------------------------------------------------------
-    await page.goto("/admin");
+    await page.goto(adminPath());
     await settled(page);
     await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Early-access funnel" })).toBeVisible();
 
     // --- Create a campaign, and see the code exactly once -------------------
-    await page.goto("/admin/access-codes/new");
+    await page.goto(adminPath("/access-codes/new"));
     await settled(page);
 
     const campaignName = `E2E campaign ${Date.now()}`;
@@ -178,13 +185,13 @@ test.describe("admin with two-factor", () => {
     expect(revealed?.trim().length ?? 0).toBeGreaterThan(6);
 
     // Revisiting the campaign must NOT show the code again.
-    await page.goto("/admin/access-codes");
+    await page.goto(adminPath("/access-codes"));
     await settled(page);
     await expect(page.getByText(campaignName)).toBeVisible();
     await expect(page.locator("body")).not.toContainText(revealed!.trim());
 
     // --- Adjust credits, with a mandatory reason ---------------------------
-    await page.goto("/admin/users");
+    await page.goto(adminPath("/users"));
     await settled(page);
     await page.getByLabel("Search users").fill(email);
     await page.getByRole("button", { name: "Search" }).click();
@@ -192,13 +199,15 @@ test.describe("admin with two-factor", () => {
     await page.getByRole("link", { name: email }).first().click();
     // Wait for the DETAIL route specifically: without this the id below can be
     // read off the list URL while the navigation is still in flight.
-    await page.waitForURL(/\/admin\/users\/usr_/, { timeout: 20_000 });
+    await page.waitForURL(new RegExp(`${escapeForRegExp(adminPath("/users/"))}usr_`), {
+      timeout: 20_000,
+    });
     await settled(page);
 
     const userId = new URL(page.url()).pathname.split("/").pop()!;
     expect(userId).toMatch(/^usr_/);
 
-    await page.goto(`/admin/credits?userId=${userId}`);
+    await page.goto(adminPath(`/credits?userId=${userId}`));
     await settled(page);
     await page.getByLabel("Amount").fill("250");
     await page.getByLabel("Reason").fill("End-to-end test grant");
@@ -207,13 +216,13 @@ test.describe("admin with two-factor", () => {
     await expect(page.getByText(/Adjustment applied/i)).toBeVisible({ timeout: 20_000 });
 
     // --- The action is in the audit log ------------------------------------
-    await page.goto("/admin/audit");
+    await page.goto(adminPath("/audit"));
     await settled(page);
     await expect(page.getByText("admin.credits.adjust").first()).toBeVisible();
     await expect(page.getByText("End-to-end test grant").first()).toBeVisible();
 
     // --- Reconciliation reports no drift -----------------------------------
-    await page.goto("/admin/credits");
+    await page.goto(adminPath("/credits"));
     await settled(page);
     await page.getByRole("button", { name: /Run reconciliation/ }).click();
     await expect(page.getByText(/Every balance matches its ledger/i)).toBeVisible({
@@ -227,7 +236,7 @@ test.describe("admin with two-factor", () => {
     const secret = await enrolTwoFactor(page);
     void secret;
 
-    await page.goto("/admin/credits");
+    await page.goto(adminPath("/credits"));
     await settled(page);
 
     await page.getByLabel("User id").fill("usr_01AAAAAAAAAAAAAAAAAAAAAAAA");
@@ -236,7 +245,7 @@ test.describe("admin with two-factor", () => {
     await page.getByRole("button", { name: /Apply adjustment/ }).click();
 
     // Required-field validation keeps us on the page; nothing was adjusted.
-    await expect(page).toHaveURL(/\/admin\/credits/);
+    await expect(page).toHaveURL(new RegExp(escapeForRegExp(adminPath("/credits"))));
     await expect(page.getByText(/Adjustment applied/i)).toHaveCount(0);
   });
 });

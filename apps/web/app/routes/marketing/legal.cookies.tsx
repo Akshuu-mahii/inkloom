@@ -41,7 +41,7 @@ export default function Cookies() {
           ],
           list: [
             "Session cookie (__Host-inkloom_session) — keeps you signed in. HttpOnly, so JavaScript cannot read it; SameSite=Lax; Secure in production. Expires after 7 days of inactivity and no later than 30 days.",
-            "OAuth state (better-auth.state) — protects a Google sign-in against interception while it is in progress. Deleted as soon as the sign-in completes, typically within a minute.",
+            "OAuth state (__Secure-inkloom.state, with a matching PKCE verifier) — protects a Google sign-in against interception while it is in progress. Deleted as soon as the sign-in completes, typically within a minute.",
             "Turnstile (set by challenges.cloudflare.com) — Cloudflare's bot check on the signup, sign-in, password-reset and contact forms. It distinguishes people from automated traffic and is not used for advertising or profiling.",
           ],
         },

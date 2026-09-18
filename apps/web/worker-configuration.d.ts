@@ -16801,3 +16801,13 @@ declare abstract class WorkflowInstance {
    */
   public sendEvent({ type, payload }: { type: string; payload: unknown }): Promise<void>;
 }
+
+/**
+ * Where the route table mounted the admin console, injected by vite.config.ts.
+ *
+ * The prefix comes from `.env` at build time and from the Worker's environment
+ * at runtime, and in local development those are two different files. This
+ * constant is the build-time answer, so the runtime can notice a disagreement
+ * instead of silently rendering links to a prefix that has no routes behind it.
+ */
+declare const __ADMIN_PREFIX_AT_BUILD__: string;

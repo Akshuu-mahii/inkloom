@@ -55,6 +55,32 @@ export function uniqueEmail(prefix = "e2e"): string {
 
 export const STRONG_PASSWORD = "a-perfectly-fine-passphrase-1";
 
+/**
+ * Where the admin console is mounted, for this checkout.
+ *
+ * NOT a constant "/admin". The console's prefix is configuration — an obscurity
+ * layer that any real deployment sets to something unguessable — and
+ * `routes.ts` bakes the configured value into the route table at BUILD time. A
+ * developer with ADMIN_PATH in their .env therefore has no /admin at all, and
+ * every console journey failed for them with "heading not found" while passing
+ * in CI, where no .env exists. The suite reads the same variable the build does.
+ */
+export const ADMIN = (process.env.ADMIN_PATH ?? "/admin").replace(/\/+$/, "") || "/admin";
+
+/**
+ * The console prefix is configurable, so any URL assertion about it has to be
+ * built rather than written as a literal — and a prefix may legitimately
+ * contain regex metacharacters, so it is escaped before it becomes a pattern.
+ */
+export function escapeForRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** `adminPath("/users")` -> "<prefix>/users". */
+export function adminPath(suffix = ""): string {
+  return `${ADMIN}${suffix}`;
+}
+
 export interface MailpitMessage {
   ID: string;
   Subject: string;

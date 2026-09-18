@@ -14,6 +14,7 @@ import { apiError, ok } from "../lib/response";
 import { body, validateBody } from "../middleware/validate";
 import { bySubjectIp, bySubjectUser, rateLimit } from "../middleware/rate-limit";
 import { requireAuth } from "../middleware/auth";
+import { defer } from "../lib/defer";
 import { analyticsEventSchema, supportSchema, type SupportInput } from "../schemas/index";
 
 export const supportRoutes = new Hono<Env>();
@@ -79,16 +80,36 @@ supportRoutes.post(
       requestId: c.get("requestId"),
     });
 
-    await mailer.send({
-      to: principal?.email ?? input.email,
-      template: "support_received",
-      userId: principal?.userId ?? null,
-      force: true,
-      rendered: templates.supportReceived(
-        { appUrl: config.APP_URL, supportEmail: config.SUPPORT_EMAIL },
-        { name: input.name ?? principal?.name, reference, subject: input.subject },
-      ),
-    });
+    /*
+     * BOTH EMAILS ARE DEFERRED, and the ticket row above is not.
+     *
+     * The row is the record; the mail is a courtesy about it. Sending inline
+     * put two provider round trips between the insert and the response and
+     * made this the slowest endpoint in the application — p95 2500ms, nearly
+     * all of it spent waiting on Resend while the user watched a spinner.
+     *
+     * Worse than slow, it was wrong. A provider hiccup threw AFTER the row had
+     * been committed, so the submitter saw a failure for a ticket that existed
+     * and submitted it again. Support got duplicates and the sender got no
+     * acknowledgement for either. Deferring puts the failure where it belongs:
+     * logged, with the ticket safely stored and answerable from the console.
+     *
+     * The audit record below stays inline — that is evidence, not observation.
+     */
+    await defer(
+      c,
+      mailer.send({
+        to: principal?.email ?? input.email,
+        template: "support_received",
+        userId: principal?.userId ?? null,
+        force: true,
+        rendered: templates.supportReceived(
+          { appUrl: config.APP_URL, supportEmail: config.SUPPORT_EMAIL },
+          { name: input.name ?? principal?.name, reference, subject: input.subject },
+        ),
+      }),
+      "support.acknowledgement",
+    );
 
     /*
      * And the half that was missing: tell whoever answers support.
@@ -97,24 +118,38 @@ supportRoutes.post(
      * sender and reached nobody. `replyTo` is the sender, so answering goes
      * straight back to them rather than to the support alias.
      */
-    await mailer.send({
-      to: config.SUPPORT_INBOX ?? config.SUPPORT_EMAIL,
-      template: "support_submitted",
-      replyTo: principal?.email ?? input.email,
-      force: true,
-      rendered: templates.supportSubmitted(
-        { appUrl: config.APP_URL, supportEmail: config.SUPPORT_EMAIL },
-        {
-          reference,
-          subject: input.subject,
-          category: input.category,
-          message: input.message,
-          fromName: input.name ?? principal?.name,
-          fromEmail: principal?.email ?? input.email,
-          accountUrl: principal ? `${config.APP_URL}/admin/users/${principal.userId}` : null,
-        },
-      ),
-    });
+    await defer(
+      c,
+      mailer.send({
+        to: config.SUPPORT_INBOX ?? config.SUPPORT_EMAIL,
+        template: "support_submitted",
+        replyTo: principal?.email ?? input.email,
+        force: true,
+        rendered: templates.supportSubmitted(
+          { appUrl: config.APP_URL, supportEmail: config.SUPPORT_EMAIL },
+          {
+            reference,
+            subject: input.subject,
+            category: input.category,
+            message: input.message,
+            fromName: input.name ?? principal?.name,
+            fromEmail: principal?.email ?? input.email,
+            /*
+             * `config.ADMIN_PATH`, not a literal "/admin". The console's prefix
+             * is a deployment secret, and "/admin" is a DECOY that returns 404
+             * — so the "view this account" link in every support notification
+             * led nowhere in exactly the environments where support email
+             * matters. The source-level guard that catches this elsewhere only
+             * scans apps/web, so this one sat outside it.
+             */
+            accountUrl: principal
+              ? `${config.APP_URL}${config.ADMIN_PATH}/users/${principal.userId}`
+              : null,
+          },
+        ),
+      }),
+      "support.notification",
+    );
 
     await audit.recordStandalone({
       action: "support.submit",

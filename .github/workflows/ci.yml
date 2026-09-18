@@ -215,10 +215,26 @@ jobs:
   # End-to-end: a real browser against a real Worker, database and mail server.
   # ---------------------------------------------------------------------------
   e2e:
-    name: End-to-end tests
+    # SHARDED, and it has to be. 95 journeys run strictly serially — they share
+    # feature flags, campaigns and rate-limit overrides, so parallel workers
+    # would race each other rather than the code — against a Vite dev server
+    # that compiles each route on first request. One runner took longer than the
+    # 30-minute cap and was cancelled mid-suite, which is a red pipeline that
+    # tells you nothing.
+    #
+    # Each shard is a separate runner with its OWN postgres and mailpit, so the
+    # serial guarantee holds inside a shard and there is no shared state between
+    # them. `fail-fast: false` because one broken journey should not hide the
+    # state of the other three quarters of the suite.
+    name: End-to-end tests (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     needs: [static]
+
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
 
     services:
       postgres:
@@ -281,12 +297,12 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: End-to-end tests
-        run: pnpm test:e2e --project=chromium
+        run: pnpm test:e2e --project=chromium --shard=${{ matrix.shard }}/4
 
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-report-shard-${{ matrix.shard }}
           path: |
             playwright-report/
             test-results/

@@ -61,6 +61,33 @@ export const envSchema = z.object({
    */
   SUPPORT_INBOX: z.string().optional(),
 
+  /**
+   * Who a non-production environment is permitted to email.
+   *
+   * Comma-separated; an entry may be a whole address or `@domain`. Empty means
+   * nobody, which is the safe end of the range — staging shares production's
+   * Resend account and verified sending domain, so an unguarded staging signup
+   * mails a real stranger and spends production's reputation doing it.
+   *
+   * Ignored in production, where the whole point is to email real people.
+   */
+  EMAIL_ALLOWLIST: z.string().default(""),
+
+  /**
+   * Cloudflare Access, when this environment sits behind it.
+   *
+   * `ACCESS_TEAM_DOMAIN` is the team hostname (e.g.
+   * "inkloom.cloudflareaccess.com") and `ACCESS_AUD` the Application Audience
+   * tag of the Access application in front of this Worker. Both, or neither:
+   * one alone cannot verify anything, and a half-configured gate that quietly
+   * lets everything through is worse than no gate, because it looks like one.
+   *
+   * Unset means ungated, which is correct for local development and for
+   * production — a public product is supposed to be public.
+   */
+  ACCESS_TEAM_DOMAIN: z.string().default(""),
+  ACCESS_AUD: z.string().default(""),
+
   TURNSTILE_SITE_KEY: z.string().default(""),
   TURNSTILE_SECRET_KEY: z.string().default(""),
   TURNSTILE_ENABLED: boolish.default(true),
@@ -128,6 +155,19 @@ export interface AppConfig extends Env {
   readonly googleOAuthEnabled: boolean;
   /** Origin derived from APP_URL, used for strict origin checks. */
   readonly origin: string;
+  /**
+   * Set when this environment sits behind Cloudflare Access and the Worker is
+   * to verify that for itself, rather than trusting the edge in front of it.
+   */
+  readonly accessGate: { teamDomain: string; aud: string; allowedEmails: readonly string[] } | null;
+  /**
+   * The addresses a non-production environment may email, already parsed.
+   *
+   * Empty in production, where it is not consulted; in staging it falls back to
+   * OWNER_EMAIL so the common setup — one environment, one person — needs no
+   * extra configuration to be safe.
+   */
+  readonly emailAllowlist: readonly string[];
 }
 
 export class ConfigError extends Error {}
@@ -171,6 +211,26 @@ export function loadConfig(source: Record<string, unknown>): AppConfig {
     if (!env.RESEND_API_KEY) {
       throw new ConfigError(`RESEND_API_KEY is required in ${env.INKLOOM_ENV}.`);
     }
+    /*
+     * Staging must know who it is allowed to email, and must be told rather
+     * than left to guess.
+     *
+     * It sends through production's Resend account and production's verified
+     * domain, so an unguarded staging environment mails real strangers and
+     * spends the sending reputation that production depends on — and staging is
+     * precisely where fixtures, demos and half-finished flows run. Refusing the
+     * boot costs one line of configuration; the alternative costs a domain.
+     *
+     * OWNER_EMAIL counts, because a staging environment with an owner already
+     * names the one person it exists for.
+     */
+    if (isStaging && !env.EMAIL_ALLOWLIST.trim() && !env.OWNER_EMAIL?.trim()) {
+      throw new ConfigError(
+        "EMAIL_ALLOWLIST is required in staging so it cannot email the public. " +
+          'Set it to the addresses staging may write to (e.g. "you@example.com,@yourdomain.com"), ' +
+          "or set OWNER_EMAIL.",
+      );
+    }
     if (env.TURNSTILE_ENABLED && !env.TURNSTILE_SECRET_KEY) {
       throw new ConfigError(
         `TURNSTILE_SECRET_KEY is required in ${env.INKLOOM_ENV} while Turnstile is enabled.`,
@@ -209,6 +269,21 @@ export function loadConfig(source: Record<string, unknown>): AppConfig {
     }
   }
 
+  const accessTeam = env.ACCESS_TEAM_DOMAIN.trim();
+  const accessAud = env.ACCESS_AUD.trim();
+  if (Boolean(accessTeam) !== Boolean(accessAud)) {
+    throw new ConfigError(
+      "ACCESS_TEAM_DOMAIN and ACCESS_AUD must be set together. One without the other " +
+        "cannot verify an Access token, and the Worker would serve every request ungated " +
+        "while appearing to be protected.",
+    );
+  }
+  if (accessTeam.includes("://")) {
+    throw new ConfigError(
+      `ACCESS_TEAM_DOMAIN must be a hostname, not a URL (got "${accessTeam}").`,
+    );
+  }
+
   return Object.freeze({
     ...env,
     isProduction,
@@ -217,5 +292,27 @@ export function loadConfig(source: Record<string, unknown>): AppConfig {
     isTest: env.INKLOOM_ENV === "test",
     googleOAuthEnabled: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
     origin: new URL(env.APP_URL).origin,
+    emailAllowlist: isProduction ? [] : parseAllowlist(env.EMAIL_ALLOWLIST, env.OWNER_EMAIL),
+    accessGate: accessTeam
+      ? {
+          teamDomain: accessTeam,
+          aud: accessAud,
+          /*
+           * The SAME list that decides who may be emailed decides who may get
+           * in. Both answer "who is this environment for", and keeping them in
+           * one place means a staging environment cannot end up open to someone
+           * it is not allowed to write to.
+           */
+          allowedEmails: parseAllowlist(env.EMAIL_ALLOWLIST, env.OWNER_EMAIL),
+        }
+      : null,
   });
+}
+
+/** Comma or whitespace separated, lower-cased, de-duplicated. */
+function parseAllowlist(raw: string, ownerEmail?: string): readonly string[] {
+  const entries = [...raw.split(/[,\s]+/), ownerEmail ?? ""]
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+  return Object.freeze([...new Set(entries)]);
 }

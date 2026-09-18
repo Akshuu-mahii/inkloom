@@ -44,6 +44,20 @@ import { deviceLabel } from "./session-policy";
  * The prefix requires HTTPS, so plain-HTTP local development falls back to an
  * unprefixed name. `assertSessionCookieName` is asserted in the integration
  * suite against a real Set-Cookie header.
+ *
+ * WHY THE LIBRARY IS NOT ALLOWED TO NAME THIS COOKIE. Better Auth prepends
+ * `__Secure-` to every cookie name of its own accord whenever
+ * `advanced.useSecureCookies` is true, with no way to opt out
+ * (cookies/index.mjs: `name: `${secureCookiePrefix}${name}``). Configuring
+ * `__Host-inkloom_session` therefore shipped `__Secure-__Host-inkloom_session`,
+ * and a browser reads only the FIRST prefix on a name: the cookie was treated
+ * as `__Secure-` and the host-only guarantee — the entire reason for the
+ * prefix — was never enforced. It also meant the clearing header written on
+ * account erasure named a cookie that did not exist.
+ *
+ * So `useSecureCookies` is left FALSE and this file owns the names outright,
+ * restoring `Secure` through `defaultCookieAttributes` (the only other thing
+ * that flag did) and prefixing Better Auth's own cookies via `cookiePrefix`.
  */
 export const SESSION_COOKIE_NAME = "__Host-inkloom_session";
 export const SESSION_COOKIE_NAME_INSECURE = "inkloom_session";
@@ -157,7 +171,25 @@ export function createAuth(deps: AuthDeps) {
           }
         },
       },
-      useSecureCookies,
+      /*
+       * FALSE ON PURPOSE — see the note above SESSION_COOKIE_NAME. This flag
+       * does exactly two things inside Better Auth: it prepends `__Secure-` to
+       * every cookie name, and it sets the `Secure` attribute. The first is
+       * what corrupted the `__Host-` name, so it is suppressed here and the
+       * second is restored explicitly below. Cookies remain Secure in every
+       * deployed environment; turning this off does NOT weaken them.
+       */
+      useSecureCookies: false,
+      /**
+       * Names the cookies this file does not name explicitly — OAuth state,
+       * PKCE verifier, the 2FA challenge — which would otherwise ship as
+       * `better-auth.state` and lose their prefix along with the flag above.
+       * A `__Secure-` prefixed name is refused by the browser unless the
+       * cookie really is Secure, so plain-HTTP local development drops it.
+       */
+      cookiePrefix: useSecureCookies ? "__Secure-inkloom" : "inkloom",
+      /** Restores what `useSecureCookies` would have set, without the rename. */
+      defaultCookieAttributes: { secure: useSecureCookies },
       /**
        * No `crossSubDomainCookies`: the cookie must stay host-only for the
        * `__Host-` prefix to be valid, and app.inkloom.art serving both the UI

@@ -44,7 +44,7 @@ function restricted(): never {
 }
 
 export async function loader({ request, context }: Route.LoaderArgs) {
-  const { config } = context.get(servicesContext);
+  const { config, logger } = context.get(servicesContext);
   const result = await call<Me>("/me", { request });
 
   if (result.status === 401 || !result.data) restricted();
@@ -70,11 +70,45 @@ export async function loader({ request, context }: Route.LoaderArgs) {
    * that now returns 404 — so the navigation would break for the one person
    * allowed to use it, and only in production, where the secret is set.
    */
+  /*
+   * Two sources for one prefix, and they are allowed to disagree quietly.
+   *
+   * `routes.ts` reads `.env` at BUILD time to decide where these pages are
+   * mounted; this loader reads the Worker's RUNTIME environment to decide what
+   * to link to. A deploy feeds both from one secret. Locally they are separate
+   * files — `.env` and `apps/web/.dev.vars` — so setting only the first serves
+   * the console from a secret path while every link inside it points at
+   * `/admin`, the decoy that returns 404.
+   *
+   * The symptom is maddening precisely because the console looks fine: it
+   * renders, it loads data, and only navigation is broken. So say so, once,
+   * with the fix in the message. Development only — in a deployed environment
+   * the two cannot diverge, and a log line naming the real prefix would be a
+   * gift to anyone reading logs.
+   */
+  const builtAt = typeof __ADMIN_PREFIX_AT_BUILD__ === "string" ? __ADMIN_PREFIX_AT_BUILD__ : null;
+  if (config.isDevelopment && builtAt && builtAt !== config.ADMIN_PATH) {
+    logger.warn("admin_path_mismatch", {
+      mountedAt: builtAt,
+      workerThinks: config.ADMIN_PATH,
+      fix:
+        "Set ADMIN_PATH to the same value in BOTH .env (read by routes.ts at build time) " +
+        "and apps/web/.dev.vars (read by the Worker), then restart the dev server.",
+    });
+  }
+
   return {
     me,
     role: toRole(me.role),
     twoFactorReady: me.twoFactorEnabled,
-    adminPath: config.ADMIN_PATH,
+    /*
+     * The BUILD-time prefix in development, the runtime one everywhere else.
+     *
+     * Links have to match where the routes actually are, and in development
+     * that is whatever `routes.ts` read from `.env`. Using the runtime value
+     * there would produce links to a prefix that has no routes behind it.
+     */
+    adminPath: config.isDevelopment && builtAt ? builtAt : config.ADMIN_PATH,
   };
 }
 
