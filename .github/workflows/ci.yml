@@ -326,17 +326,22 @@ jobs:
           RUNNER_IP=$(hostname -I | awk '{print $1}')
           echo "Worker will reach postgres at $RUNNER_IP"
 
-          cat > apps/web/.dev.vars <<VARS
-          DATABASE_URL=postgres://inkloom:inkloom_ci@${RUNNER_IP}:5432/inkloom
-          BETTER_AUTH_SECRET=ci-only-secret-not-used-anywhere-else-000000
-          ACCESS_CODE_PEPPER=ci-only-access-code-pepper-32-chars-x
-          IP_HASH_PEPPER=ci-only-ip-hash-pepper-32-characters
-          # Cloudflare's documented always-passes test secret, paired with the
-          # always-passes sitekey already in wrangler.jsonc. Turnstile stays
-          # ENABLED so the suite exercises the real gate — including
-          # turnstile-resilience.spec.ts, which is meaningless with it off.
-          TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
-          VARS
+          # Derived from the job's own DATABASE_URL rather than written out
+          # again, so the credential appears exactly once in this file and the
+          # secret scanner keeps its strict rule about postgres URLs.
+          WORKER_DATABASE_URL="${DATABASE_URL/@127.0.0.1/@$RUNNER_IP}"
+
+          {
+            echo "DATABASE_URL=$WORKER_DATABASE_URL"
+            echo "BETTER_AUTH_SECRET=ci-only-secret-not-used-anywhere-else-000000"
+            echo "ACCESS_CODE_PEPPER=ci-only-access-code-pepper-32-chars-x"
+            echo "IP_HASH_PEPPER=ci-only-ip-hash-pepper-32-characters"
+            # Cloudflare's documented always-passes test secret, paired with the
+            # always-passes sitekey already in wrangler.jsonc. Turnstile stays
+            # ENABLED so the suite exercises the real gate — including
+            # turnstile-resilience.spec.ts, which is meaningless with it off.
+            echo "TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA"
+          } > apps/web/.dev.vars
 
       # Proves, from this runner, that the URL the Worker was handed is one a
       # client can actually use. If this succeeds and the Worker still cannot
