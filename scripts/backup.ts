@@ -127,6 +127,45 @@ async function main() {
   let rowsCovered = 0;
 
   try {
+    /*
+     * A database that was never provisioned is not a backup failure.
+     *
+     * Production has a Neon project and a Hyperdrive but has never had
+     * migrations run, so every nightly run failed on `SELECT COUNT(*) FROM
+     * users` and reported a backup outage for an environment that does not
+     * exist yet. That is noise, and noise is how a real outage gets ignored.
+     *
+     * The distinction is the MIGRATIONS TABLE, not the absence of tables. A
+     * database that has never been provisioned has no `drizzle.__drizzle_
+     * migrations`; one that HAS been provisioned and then lost its tables still
+     * has it, and that is a catastrophe which must fail loudly. Skipping on
+     * "no tables" alone would silently wave through a wiped production.
+     */
+    const provisioned = (
+      await db.execute<{ exists: boolean }>(sql`
+        SELECT EXISTS (
+          SELECT 1 FROM information_schema.tables
+           WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
+        ) AS exists
+      `)
+    ).rows[0]?.exists;
+
+    if (!provisioned) {
+      console.log(
+        "\n  This database has never been migrated — there is nothing to back up yet.\n" +
+          "  Skipping, and NOT recording a failure. Once migrations run here, backups\n" +
+          "  start on their own.\n",
+      );
+      if (process.env.CI) {
+        console.log(
+          `::notice title=Nothing to back up::${label} has no schema yet ` +
+            "(migrations have never run). Skipped, not failed.",
+        );
+      }
+      await pool.end();
+      process.exit(0);
+    }
+
     // What the live database holds, so the dump can be checked against it.
     const live = (
       await db.execute<Record<string, string>>(sql`
