@@ -36,6 +36,7 @@ const AUD = "aud-of-this-application";
 const OWNER = "owner@example.com";
 
 const gate: AccessGateConfig = { teamDomain: TEAM, aud: AUD, allowedEmails: [OWNER] };
+const SERVICE_TOKEN = "abc123.access";
 
 let keyPair: KeyPair;
 let jwks: { keys: unknown[] };
@@ -201,6 +202,77 @@ describe("tokens that must be refused", () => {
   it("refuses everything when the allowlist is empty", async () => {
     const result = await verifyAccessToken(await mint(), { ...gate, allowedEmails: [] });
     expect(result).toEqual({ ok: false, reason: "email_not_allowed" });
+  });
+});
+
+describe("service tokens, which are how CI gets in", () => {
+  /*
+   * Without these, turning Access on breaks the deploy pipeline: the
+   * post-deploy smoke test drives a real browser at the deployed site and meets
+   * a login page. Access signs a token for a service token exactly as it does
+   * for a person, with `common_name` — the Client ID — instead of `email`.
+   */
+  const withToken = { ...gate, allowedServiceTokens: [SERVICE_TOKEN] };
+
+  it("accepts a listed service token", async () => {
+    const token = await mint({ email: undefined, common_name: SERVICE_TOKEN });
+    const result = await verifyAccessToken(token, withToken);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.identity.email).toBe(`service:${SERVICE_TOKEN}`);
+  });
+
+  it("refuses a service token that is not listed", async () => {
+    const token = await mint({ email: undefined, common_name: "someone-elses.access" });
+
+    expect(await verifyAccessToken(token, withToken)).toEqual({
+      ok: false,
+      reason: "service_token_not_allowed",
+    });
+  });
+
+  it("refuses every service token when none are configured", async () => {
+    // The default. A human allowlist must not silently admit machines.
+    const token = await mint({ email: undefined, common_name: SERVICE_TOKEN });
+
+    expect(await verifyAccessToken(token, gate)).toEqual({
+      ok: false,
+      reason: "service_token_not_allowed",
+    });
+  });
+
+  it("does not let a service token borrow the human allowlist", async () => {
+    // A token naming itself after the owner's address must not inherit access.
+    const token = await mint({ email: undefined, common_name: OWNER });
+
+    expect(await verifyAccessToken(token, withToken)).toEqual({
+      ok: false,
+      reason: "service_token_not_allowed",
+    });
+  });
+
+  it("still requires a valid signature", async () => {
+    const attacker = (await crypto.subtle.generateKey(
+      {
+        name: "RSASSA-PKCS1-v1_5",
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: "SHA-256",
+      },
+      true,
+      ["sign", "verify"],
+    )) as KeyPair;
+
+    const token = await mint(
+      { email: undefined, common_name: SERVICE_TOKEN },
+      {},
+      attacker.privateKey,
+    );
+
+    expect(await verifyAccessToken(token, withToken)).toEqual({
+      ok: false,
+      reason: "bad_signature",
+    });
   });
 });
 

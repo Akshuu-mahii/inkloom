@@ -88,6 +88,16 @@ export const envSchema = z.object({
   ACCESS_TEAM_DOMAIN: z.string().default(""),
   ACCESS_AUD: z.string().default(""),
 
+  /**
+   * Access service tokens allowed through, by Client ID, comma-separated.
+   *
+   * Anything non-interactive needs one: the post-deploy smoke test drives a
+   * real browser at the deployed site and would otherwise meet a login page.
+   * Kept apart from the human allowlist because this is a credential held by
+   * CI, and the two should be revocable independently.
+   */
+  ACCESS_SERVICE_TOKENS: z.string().default(""),
+
   TURNSTILE_SITE_KEY: z.string().default(""),
   TURNSTILE_SECRET_KEY: z.string().default(""),
   TURNSTILE_ENABLED: boolish.default(true),
@@ -159,7 +169,12 @@ export interface AppConfig extends Env {
    * Set when this environment sits behind Cloudflare Access and the Worker is
    * to verify that for itself, rather than trusting the edge in front of it.
    */
-  readonly accessGate: { teamDomain: string; aud: string; allowedEmails: readonly string[] } | null;
+  readonly accessGate: {
+    teamDomain: string;
+    aud: string;
+    allowedEmails: readonly string[];
+    allowedServiceTokens: readonly string[];
+  } | null;
   /**
    * The addresses a non-production environment may email, already parsed.
    *
@@ -304,6 +319,7 @@ export function loadConfig(source: Record<string, unknown>): AppConfig {
            * it is not allowed to write to.
            */
           allowedEmails: parseAllowlist(env.EMAIL_ALLOWLIST, env.OWNER_EMAIL),
+          allowedServiceTokens: parseAllowlist(env.ACCESS_SERVICE_TOKENS),
         }
       : null,
   });

@@ -259,9 +259,15 @@ jobs:
 
       - name: Start postgres and mailpit on the host network
         run: |
+          # max_connections is raised and logging turned up for a reason: the
+          # Worker opens ONE client per request and closes it after the
+          # response, so a browser-driven suite can hold a surprising number at
+          # once. `log_connections` makes an exhausted server say so in its own
+          # words instead of surfacing as an unexplained refusal at the client.
           docker run -d --name inkloom-postgres --network host \
             -e POSTGRES_USER=inkloom -e POSTGRES_PASSWORD=inkloom_ci -e POSTGRES_DB=inkloom \
-            postgres:17-alpine
+            postgres:17-alpine \
+            -c max_connections=400 -c log_connections=on -c log_disconnections=on
           docker run -d --name inkloom-mailpit --network host axllent/mailpit:latest
 
           for attempt in $(seq 1 30); do
@@ -319,11 +325,42 @@ jobs:
           TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
           VARS
 
+      # Proves, from this runner, that the URL the Worker was handed is one a
+      # client can actually use. If this succeeds and the Worker still cannot
+      # connect, the difference is workerd rather than the database — which is
+      # exactly the distinction the failure mode does not make on its own.
+      - name: The Worker's database URL, exercised
+        run: |
+          echo "url: $(sed -n 's|^DATABASE_URL=.*@|host: |p' apps/web/.dev.vars)"
+          node -e "
+            const { Client } = require('pg');
+            const url = require('fs').readFileSync('apps/web/.dev.vars', 'utf8')
+              .split('\n').find((l) => l.startsWith('DATABASE_URL=')).slice(13);
+            const c = new Client({ connectionString: url });
+            c.connect()
+              .then(() => c.query('select 1'))
+              .then(() => { console.log('node connected to the Worker URL: ok'); return c.end(); })
+              .catch((e) => { console.log('node could NOT connect:', e.message); process.exit(1); });
+          "
+
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
 
       - name: End-to-end tests
         run: pnpm test:e2e --project=chromium --shard=${{ matrix.shard }}/4
+
+      # The database's own account of what happened, which the client side can
+      # only guess at. A refusal looks identical from the outside whether the
+      # server was unreachable, out of connection slots, or never asked.
+      - name: What postgres saw
+        if: always()
+        run: |
+          echo "--- connection errors ---"
+          docker logs inkloom-postgres 2>&1 | grep -iE "too many|fatal|could not|reject" | tail -30 || true
+          echo "--- peak connections ---"
+          docker exec inkloom-postgres psql -U inkloom -d inkloom -tAc \
+            "SELECT count(*) || ' open now, max_connections=' || current_setting('max_connections')
+               FROM pg_stat_activity" || true
 
       - uses: actions/upload-artifact@v4
         if: failure()

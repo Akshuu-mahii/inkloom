@@ -75,6 +75,12 @@ jobs:
       - name: Post-deploy smoke test
         env:
           E2E_BASE_URL: https://staging.inkloom.art
+          # Staging sits behind Cloudflare Access. These are an Access SERVICE
+          # TOKEN — a credential for CI, listed in ACCESS_SERVICE_TOKENS on the
+          # Worker and revocable without touching anyone's own access. Unset
+          # while Access is off, and the headers are then simply not sent.
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           pnpm exec playwright install --with-deps chromium
           # Read-only journeys only: this runs against a shared environment, so

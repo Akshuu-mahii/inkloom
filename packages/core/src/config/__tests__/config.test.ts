@@ -318,6 +318,23 @@ describe("the Cloudflare Access gate", () => {
       teamDomain: "inkloom.cloudflareaccess.com",
       aud: "abc123",
       allowedEmails: ["me@example.com"],
+      allowedServiceTokens: [],
     });
+  });
+
+  it("keeps service tokens on their own list, not the human one", () => {
+    // CI holds a credential; a person holds an identity. Listing them together
+    // would mean revoking the pipeline's access revokes yours, and a token
+    // named after an address would inherit a person's permission.
+    const config = loadConfig({
+      ...stagingEnv(),
+      EMAIL_ALLOWLIST: "me@example.com",
+      ACCESS_TEAM_DOMAIN: "inkloom.cloudflareaccess.com",
+      ACCESS_AUD: "abc123",
+      ACCESS_SERVICE_TOKENS: "ci-token.access, monitor.access",
+    });
+
+    expect(config.accessGate?.allowedEmails).toEqual(["me@example.com"]);
+    expect(config.accessGate?.allowedServiceTokens).toEqual(["ci-token.access", "monitor.access"]);
   });
 });

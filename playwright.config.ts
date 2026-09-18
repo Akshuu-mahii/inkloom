@@ -45,6 +45,22 @@ export default defineConfig({
 
   use: {
     baseURL: BASE_URL,
+    /*
+     * Cloudflare Access service-token credentials, when the target is gated.
+     *
+     * Staging sits behind Access, so the post-deploy smoke test would otherwise
+     * be handed a login page and fail on a deploy that was perfectly healthy.
+     * Access accepts these two headers in place of an interactive login and
+     * mints the same signed assertion the Worker verifies. Absent — which is
+     * every local run — the headers are simply not sent.
+     */
+    extraHTTPHeaders:
+      process.env.CF_ACCESS_CLIENT_ID && process.env.CF_ACCESS_CLIENT_SECRET
+        ? {
+            "CF-Access-Client-Id": process.env.CF_ACCESS_CLIENT_ID,
+            "CF-Access-Client-Secret": process.env.CF_ACCESS_CLIENT_SECRET,
+          }
+        : {},
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
