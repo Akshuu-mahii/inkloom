@@ -198,9 +198,16 @@ describe("many different users redeeming one UNCAPPED campaign at once", () => {
     );
 
     const failed = results.filter((r) => r.status === "rejected");
-    expect(failed, `all ${USERS} should succeed: ${failed.map((f) => String(f.reason))}`).toEqual([]);
+    expect(failed, `all ${USERS} should succeed: ${failed.map((f) => String(f.reason))}`).toEqual(
+      [],
+    );
 
-    const rows = await t.db.execute<{ redemptions: string; entries: string; wallets: string; drift: string }>(sql`
+    const rows = await t.db.execute<{
+      redemptions: string;
+      entries: string;
+      wallets: string;
+      drift: string;
+    }>(sql`
       SELECT
         (SELECT COUNT(*) FROM access_code_redemptions)                       AS redemptions,
         (SELECT COUNT(*) FROM credit_ledger)                                 AS entries,

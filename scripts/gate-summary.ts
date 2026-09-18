@@ -61,7 +61,11 @@ async function main() {
     ["duplicate ledger keys", row.duplicate_ledger_keys, row.duplicate_ledger_keys === "0"],
     ["5xx all time", row.five_xx_all_time, row.five_xx_all_time === "0"],
     ["append-only triggers", row.append_only_triggers, row.append_only_triggers === "2"],
-    ["erased accounts keeping an address", row.erased_with_address, row.erased_with_address === "0"],
+    [
+      "erased accounts keeping an address",
+      row.erased_with_address,
+      row.erased_with_address === "0",
+    ],
     [
       "erased accounts keeping credentials",
       row.erased_with_credentials,
@@ -122,7 +126,9 @@ async function main() {
   }
 
   const failures = gate.filter(([, , ok]) => !ok).length + unhealthyJobs;
-  console.log(`\n  ${failures === 0 ? "ALL GATE INVARIANTS HOLD" : `${failures} INVARIANT(S) FAILING`}\n`);
+  console.log(
+    `\n  ${failures === 0 ? "ALL GATE INVARIANTS HOLD" : `${failures} INVARIANT(S) FAILING`}\n`,
+  );
 
   await pool.end();
   process.exit(failures === 0 ? 0 : 1);

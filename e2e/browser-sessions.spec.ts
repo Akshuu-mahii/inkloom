@@ -113,9 +113,10 @@ test.describe("two tabs, one session", () => {
       const r = await fetch("/api/v1/me", { credentials: "same-origin" });
       return r.status;
     });
-    expect(apiStatus, "a suspended account must not keep reading its own data").toBeGreaterThanOrEqual(
-      401,
-    );
+    expect(
+      apiStatus,
+      "a suspended account must not keep reading its own data",
+    ).toBeGreaterThanOrEqual(401);
 
     await other.reload();
     await settled(other);
@@ -178,7 +179,9 @@ test.describe("navigation and history", () => {
     ).toBe(true);
   });
 
-  test("a refresh keeps the person signed in and nothing sensitive in the URL", async ({ page }) => {
+  test("a refresh keeps the person signed in and nothing sensitive in the URL", async ({
+    page,
+  }) => {
     await signUpAndVerify(page, uniqueEmail("refresh"));
 
     await page.goto("/app");
@@ -211,7 +214,9 @@ test.describe("navigation and history", () => {
 
     const forbidden = /password|secret|token|pepper|postgres|npg_|\$scrypt\$|Bearer /i;
     expect(stored.local, "localStorage must hold no credential material").not.toMatch(forbidden);
-    expect(stored.session, "sessionStorage must hold no credential material").not.toMatch(forbidden);
+    expect(stored.session, "sessionStorage must hold no credential material").not.toMatch(
+      forbidden,
+    );
   });
 });
 

@@ -52,12 +52,7 @@ export default tseslint.config(
      * script carried 43 errors that no per-file suppression should have been
      * needed to silence.
      */
-    files: [
-      "scripts/**/*.{ts,mjs,js}",
-      "e2e/**/*.ts",
-      "**/*.test.ts",
-      "**/*.config.*",
-    ],
+    files: ["scripts/**/*.{ts,mjs,js}", "e2e/**/*.ts", "**/*.test.ts", "**/*.config.*"],
     languageOptions: {
       /*
        * Declared inline rather than pulling in the `globals` package for one

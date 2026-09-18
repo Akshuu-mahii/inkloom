@@ -234,7 +234,10 @@ export async function anonymiseAccount(
       await tx
         .delete(rateLimitEvent)
         .where(
-          or(eq(rateLimitEvent.subject, `email:${email}`), eq(rateLimitEvent.subject, `user:${userId}`)),
+          or(
+            eq(rateLimitEvent.subject, `email:${email}`),
+            eq(rateLimitEvent.subject, `user:${userId}`),
+          ),
         ),
     );
 

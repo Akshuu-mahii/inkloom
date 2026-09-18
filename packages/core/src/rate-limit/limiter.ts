@@ -172,11 +172,7 @@ export class RateLimiter {
    * `consume` on the way in would charge honest successes too and lock out a
    * user who has done nothing wrong.
    */
-  async within(
-    bucket: RateLimitBucket,
-    subject: string,
-    now: Date = new Date(),
-  ): Promise<boolean> {
+  async within(bucket: RateLimitBucket, subject: string, now: Date = new Date()): Promise<boolean> {
     if (this.options.enabled === false) return true;
     const policy = await this.policyFor(bucket);
     return (await this.peek(bucket, subject, now)) < policy.limit;

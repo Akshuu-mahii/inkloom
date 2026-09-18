@@ -288,8 +288,8 @@ function EraseAccount({
     >
       <h2 style={{ fontSize: "var(--text-h4)" }}>Erase this account</h2>
       <p style={{ marginTop: "0.5rem", color: "var(--color-muted)", maxWidth: "62ch" }}>
-        This permanently removes your name, email address, profile and every way of signing in.
-        It cannot be undone and we cannot recover the account afterwards.
+        This permanently removes your name, email address, profile and every way of signing in. It
+        cannot be undone and we cannot recover the account afterwards.
       </p>
       <p style={{ marginTop: "0.5rem", color: "var(--color-muted)", maxWidth: "62ch" }}>
         Your credit history stays in our accounting records under an anonymous identifier, with

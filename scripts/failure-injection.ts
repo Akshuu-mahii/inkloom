@@ -161,7 +161,10 @@ async function main() {
       ["/api/v1/credits", {}],
       [
         "/api/v1/auth/login",
-        { method: "POST", body: JSON.stringify({ email: "a@example.test", password: "x".repeat(12) }) },
+        {
+          method: "POST",
+          body: JSON.stringify({ email: "a@example.test", password: "x".repeat(12) }),
+        },
       ],
       [
         "/api/v1/auth/signup",
@@ -271,8 +274,10 @@ async function main() {
     );
 
     await after.db
-      .execute(sql`UPDATE users SET status='deleted', email='outage-retired-' || id || '@deleted.invalid'
-                    WHERE normalized_email = 'outage@example.test'`)
+      .execute(
+        sql`UPDATE users SET status='deleted', email='outage-retired-' || id || '@deleted.invalid'
+                    WHERE normalized_email = 'outage@example.test'`,
+      )
       .catch(() => {});
     await after.pool.end();
   } finally {

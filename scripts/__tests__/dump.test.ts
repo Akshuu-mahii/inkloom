@@ -81,10 +81,7 @@ describe("a dump that is actually usable", () => {
   });
 
   it("counts an empty table as zero rows, not as missing", () => {
-    const empty = validDump().replace(
-      "usr_1\tada@example.test\nusr_2\tgrace@example.test\n",
-      "",
-    );
+    const empty = validDump().replace("usr_1\tada@example.test\nusr_2\tgrace@example.test\n", "");
     expect(countCopyRows(empty, "public.users")).toBe(0);
   });
 });
@@ -105,7 +102,10 @@ describe("the ways a dump can be broken while still looking fine", () => {
   });
 
   it("rejects one missing the completion marker", () => {
-    const noMarker = validDump().replace("-- PostgreSQL database dump complete", "-- something else");
+    const noMarker = validDump().replace(
+      "-- PostgreSQL database dump complete",
+      "-- something else",
+    );
     expect(() => verifyDumpFile(write("nomarker.sql.gz", noMarker))).toThrow(/truncated/i);
   });
 

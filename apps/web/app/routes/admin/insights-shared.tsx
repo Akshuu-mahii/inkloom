@@ -202,9 +202,7 @@ export function Funnel({ steps }: { steps: Array<{ label: string; value: number 
         const previous = i > 0 ? (steps[i - 1]?.value ?? 0) : null;
         const share = widest > 0 ? (step.value / widest) * 100 : 0;
         const change =
-          previous && previous > 0
-            ? Math.round(((step.value - previous) / previous) * 100)
-            : null;
+          previous && previous > 0 ? Math.round(((step.value - previous) / previous) * 100) : null;
 
         return (
           <div key={step.label} className="funnel-step">
@@ -213,7 +211,10 @@ export function Funnel({ steps }: { steps: Array<{ label: string; value: number 
               <span className="funnel-value">
                 {step.value.toLocaleString("en-GB")}
                 {top > 0 && (
-                  <span className="funnel-share"> · {Math.round((step.value / top) * 100)}% of step 1</span>
+                  <span className="funnel-share">
+                    {" "}
+                    · {Math.round((step.value / top) * 100)}% of step 1
+                  </span>
                 )}
               </span>
             </div>

@@ -33,16 +33,15 @@ const workerCtx = (log = logger()) => {
  * A context WITHOUT an execution context. Hono THROWS on access rather than
  * returning undefined, which is the behaviour the helper has to survive.
  */
-const bareCtx = (log = logger()) =>
-  ({
-    ctx: {
-      get: () => log,
-      get executionCtx(): never {
-        throw new Error("This context has no ExecutionContext");
-      },
-    } as unknown as Ctx,
-    log,
-  });
+const bareCtx = (log = logger()) => ({
+  ctx: {
+    get: () => log,
+    get executionCtx(): never {
+      throw new Error("This context has no ExecutionContext");
+    },
+  } as unknown as Ctx,
+  log,
+});
 
 describe("in a Worker", () => {
   it("returns before the work finishes, and hands the work to waitUntil", async () => {

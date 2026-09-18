@@ -13,3 +13,17 @@ minimumReleaseAgeExclude:
   - "@cloudflare/vite-plugin@1.54.6"
   - miniflare@5.20260908.0-alpha
   - wrangler@4.130.0
+
+# Transitive dependency pins.
+#
+# `sharp` arrives through miniflare (via wrangler and @cloudflare/vite-plugin)
+# and carried a high-severity libheif advisory below 0.35.4. It is build and
+# local-dev tooling and never reaches the deployed Worker, so the practical
+# exposure is small — but waiting for Cloudflare to bump a transitive dep is
+# not a plan, and CI is right to refuse to go green on a known high.
+#
+# In pnpm 11 overrides live HERE, not in package.json: the old `pnpm.overrides`
+# field is silently ignored, which looks exactly like an override that did not
+# work.
+overrides:
+  sharp: ">=0.35.4"

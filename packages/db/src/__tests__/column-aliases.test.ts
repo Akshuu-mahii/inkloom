@@ -35,7 +35,12 @@ const snake = (s: string) => s.replace(/(?<!^)(?=[A-Z])/g, "_").toLowerCase();
  * Property names that resolve to a different physical column, and the name a
  * reader would wrongly expect the column to have.
  */
-function aliasedColumns(): Array<{ file: string; property: string; phantom: string; real: string }> {
+function aliasedColumns(): Array<{
+  file: string;
+  property: string;
+  phantom: string;
+  real: string;
+}> {
   const found: Array<{ file: string; property: string; phantom: string; real: string }> = [];
 
   for (const entry of readdirSync(SCHEMA_DIR)) {
@@ -55,7 +60,8 @@ function aliasedColumns(): Array<{ file: string; property: string; phantom: stri
 /** Every .ts/.sql file that could contain hand-written SQL. */
 function sourceFiles(dir: string, found: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
-    if (["node_modules", ".git", "build", "dist", "__tests__", ".wrangler"].includes(entry)) continue;
+    if (["node_modules", ".git", "build", "dist", "__tests__", ".wrangler"].includes(entry))
+      continue;
     const full = join(dir, entry);
     const stat = statSync(full);
     if (stat.isDirectory()) sourceFiles(full, found);

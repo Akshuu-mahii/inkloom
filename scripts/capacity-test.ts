@@ -91,9 +91,7 @@ async function fanOut(
       p95: Math.max(...results.map((r) => r.latency.p95)),
       p99: Math.max(...results.map((r) => r.latency.p99)),
       max: Math.max(...results.map((r) => r.latency.max)),
-      mean: Number(
-        (results.reduce((s, r) => s + r.latency.mean, 0) / results.length).toFixed(1),
-      ),
+      mean: Number((results.reduce((s, r) => s + r.latency.mean, 0) / results.length).toFixed(1)),
     },
     classes: {},
     status: {},
@@ -202,9 +200,7 @@ async function seedSession(db: Database, label: string) {
     headers: { "content-type": "application/json", origin: TARGET },
     body: JSON.stringify({ email, password: PASSWORD }),
   });
-  const cookie = (login.headers.getSetCookie?.() ?? [])
-    .map((c) => c.split(";")[0])
-    .join("; ");
+  const cookie = (login.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]).join("; ");
   return { email, userId, cookie };
 }
 
@@ -339,16 +335,20 @@ async function main() {
     );
 
     // =====================================================================
-    console.log("\n=== CSV (scenario,c,gen_rps,gen_p50,gen_p95,gen_p99,gen_5xx,gen_429,srv_req,srv_mean,srv_p95,srv_5xx,srv_429) ===");
+    console.log(
+      "\n=== CSV (scenario,c,gen_rps,gen_p50,gen_p95,gen_p99,gen_5xx,gen_429,srv_req,srv_mean,srv_p95,srv_5xx,srv_429) ===",
+    );
     for (const line of report) console.log(line);
   } finally {
     for (const id of created) {
       await db.execute(sql`DELETE FROM accounts WHERE user_id = ${id}`).catch(() => {});
       await db.execute(sql`DELETE FROM sessions WHERE user_id = ${id}`).catch(() => {});
       await db
-        .execute(sql`UPDATE users SET status='deleted', anonymized_at=now(),
+        .execute(
+          sql`UPDATE users SET status='deleted', anonymized_at=now(),
                        email='cap-retired-' || id || '@deleted.invalid'
-                     WHERE id = ${id}`)
+                     WHERE id = ${id}`,
+        )
         .catch(() => {});
     }
     console.log(`\n  retired ${created.length} load accounts`);

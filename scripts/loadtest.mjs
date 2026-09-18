@@ -221,11 +221,16 @@ for (const [step, s] of [...stats.entries()].sort()) {
   const n = s.times.length;
   totalReq += n;
   totalFail += s.fail;
-  const codes = [...s.codes.entries()].sort((a, b) => b[1] - a[1]).map(([c, k]) => `${c}:${k}`).join(" ");
+  const codes = [...s.codes.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([c, k]) => `${c}:${k}`)
+    .join(" ");
   console.log(
     `  ${step.padEnd(16)} ${String(n).padStart(5)} ${String(s.ok).padStart(7)} ${String(s.fail).padStart(6)} ` +
       `${pct(s.times, 0.5).toFixed(0).padStart(6)}ms ${pct(s.times, 0.95).toFixed(0).padStart(6)}ms ` +
-      `${Math.max(...s.times).toFixed(0).padStart(6)}ms   ${codes}`,
+      `${Math.max(...s.times)
+        .toFixed(0)
+        .padStart(6)}ms   ${codes}`,
   );
 }
 
@@ -244,8 +249,10 @@ const after = await client.query(`
 const a = after.rows[0];
 
 console.log("  " + "-".repeat(78));
-console.log(`  requests ${totalReq}   failures ${totalFail}   ${elapsed.toFixed(1)}s   ` +
-            `${(totalReq / elapsed).toFixed(1)} req/s`);
+console.log(
+  `  requests ${totalReq}   failures ${totalFail}   ${elapsed.toFixed(1)}s   ` +
+    `${(totalReq / elapsed).toFixed(1)} req/s`,
+);
 console.log(`\n  users        ${before.rows[0].u} -> ${a.u}`);
 console.log(`  2FA enabled  ${a.tfa}   (two_factor rows: ${a.tfarows})`);
 console.log(`  redemptions  ${a.red}`);

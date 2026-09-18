@@ -83,12 +83,12 @@ export function rateLimit(...specs: LimitSpec[]): MiddlewareHandler<Env> {
       await defer(
         c,
         audit.security({
-        type: "rate_limit_exceeded",
-        severity: "warning",
-        userId: c.get("principal")?.userId ?? null,
-        ipHash: c.get("ipHash"),
-        requestId: c.get("requestId"),
-        metadata: { bucket: blocked.spec.bucket, path: new URL(c.req.url).pathname },
+          type: "rate_limit_exceeded",
+          severity: "warning",
+          userId: c.get("principal")?.userId ?? null,
+          ipHash: c.get("ipHash"),
+          requestId: c.get("requestId"),
+          metadata: { bucket: blocked.spec.bucket, path: new URL(c.req.url).pathname },
         }),
         "rate_limit_exceeded",
       );

@@ -200,8 +200,16 @@ async function main() {
           WHERE payload IS NOT NULL AND expires_at < now()) AS stale_exports
     `);
     const r = retention.rows[0]!;
-    check("no security event is past its retention period", r.stale_security === "0", `n=${r.stale_security}`);
-    check("no analytics event is past its retention period", r.stale_analytics === "0", `n=${r.stale_analytics}`);
+    check(
+      "no security event is past its retention period",
+      r.stale_security === "0",
+      `n=${r.stale_security}`,
+    );
+    check(
+      "no analytics event is past its retention period",
+      r.stale_analytics === "0",
+      `n=${r.stale_analytics}`,
+    );
     check("no expired export payload survives", r.stale_exports === "0", `n=${r.stale_exports}`);
   } finally {
     await pool.end();

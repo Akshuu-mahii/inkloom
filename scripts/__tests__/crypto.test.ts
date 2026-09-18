@@ -7,12 +7,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import {
-  BackupCryptoError,
-  decryptBackup,
-  encryptBackup,
-  isEncryptedBackup,
-} from "../_crypto";
+import { BackupCryptoError, decryptBackup, encryptBackup, isEncryptedBackup } from "../_crypto";
 
 const KEY = "a-sufficiently-long-backup-passphrase";
 const OTHER = "a-different-but-also-long-passphrase";

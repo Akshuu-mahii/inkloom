@@ -129,7 +129,6 @@ describe("DevelopmentMailRouter", () => {
   });
 });
 
-
 // ===========================================================================
 
 describe("the real provider never sees an address that cannot exist", () => {
@@ -169,16 +168,23 @@ describe("the real provider never sees an address that cannot exist", () => {
   });
 
   it("still calls the provider for a real address", async () => {
-    const fetchSpy = vi.fn(async () =>
-      new Response(JSON.stringify({ id: "msg_1" }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: "msg_1" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
     );
     vi.stubGlobal("fetch", fetchSpy);
 
     await transport().send(
-      { to: "a.real.person@gmail.com", subject: "s", html: "<p>h</p>", text: "h", template: "verify_email" },
+      {
+        to: "a.real.person@gmail.com",
+        subject: "s",
+        html: "<p>h</p>",
+        text: "h",
+        template: "verify_email",
+      },
       "Inkloom <no-reply@mail.inkloom.art>",
     );
 

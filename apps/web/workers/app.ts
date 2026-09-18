@@ -184,7 +184,9 @@ export default {
         Promise.allSettled(deferred)
           // Eager in development only: the dev server re-evaluates modules per
           // request, so nothing would ever accumulate long enough to flush.
-          .then(() => flushIfDue(db, services.logger, services.config.INKLOOM_ENV === "development"))
+          .then(() =>
+            flushIfDue(db, services.logger, services.config.INKLOOM_ENV === "development"),
+          )
           .catch(() => {})
           .finally(() => pool.end().catch(() => {})),
       );

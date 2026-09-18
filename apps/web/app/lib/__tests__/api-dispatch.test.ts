@@ -145,15 +145,16 @@ describe("the failure that started this", () => {
   });
 
   it("surfaces a real API error envelope untouched", async () => {
-    const dispatch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          data: null,
-          error: { code: "TURNSTILE_FAILED", message: "We couldn't verify that you're human." },
-          requestId: "req_1",
-        }),
-        { status: 403, headers: { "content-type": "application/json" } },
-      ),
+    const dispatch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: null,
+            error: { code: "TURNSTILE_FAILED", message: "We couldn't verify that you're human." },
+            requestId: "req_1",
+          }),
+          { status: 403, headers: { "content-type": "application/json" } },
+        ),
     );
 
     const result = await runWithApiDispatch(dispatch, () =>

@@ -158,9 +158,7 @@ async function enrol2fa(cookies: string[]): Promise<{ secret: string; cookies: s
   const uri = (started.data as { totpURI?: string } | null)?.totpURI;
   if (!uri) return null;
 
-  const secret = new TextDecoder().decode(
-    base32.decode(new URL(uri).searchParams.get("secret")!),
-  );
+  const secret = new TextDecoder().decode(base32.decode(new URL(uri).searchParams.get("secret")!));
   const confirmed = await call("/v1/auth/two-factor/confirm", {
     method: "POST",
     cookies,
@@ -254,9 +252,8 @@ async function main() {
 
     // Bob's session id, used against Alice's session.
     const bobSessions = await call("/v1/me/sessions", { cookies: bob.cookies });
-    const bobSessionId = (
-      (bobSessions.data as { sessions?: Array<{ id: string }> } | null)?.sessions ?? []
-    )[0]?.id;
+    const bobSessionId = ((bobSessions.data as { sessions?: Array<{ id: string }> } | null)
+      ?.sessions ?? [])[0]?.id;
 
     if (bobSessionId) {
       const stolen = await call(`/v1/me/sessions/${bobSessionId}`, {
@@ -411,7 +408,10 @@ async function main() {
 
     const carol = await signedIn(db, "carol");
     created.push(carol);
-    check("carol starts authenticated", (await call("/v1/me", { cookies: carol.cookies })).status === 200);
+    check(
+      "carol starts authenticated",
+      (await call("/v1/me", { cookies: carol.cookies })).status === 200,
+    );
 
     await db.execute(sql`UPDATE sessions SET revoked_at = now() WHERE user_id = ${carol.userId}`);
     const afterRevoke = await call("/v1/me", { cookies: carol.cookies });
@@ -483,7 +483,11 @@ async function main() {
       ["null body", { raw: "null" }, [400]],
       ["deeply nested JSON", { raw: `{"a":${"[".repeat(200)}${"]".repeat(200)}}` }, [400, 413]],
       ["SQL in the email field", { body: { email: "a' OR 1=1--", password: PASSWORD } }, [400]],
-      ["huge string field", { body: { email: `${"a".repeat(5000)}@x.test`, password: PASSWORD } }, [400, 413]],
+      [
+        "huge string field",
+        { body: { email: `${"a".repeat(5000)}@x.test`, password: PASSWORD } },
+        [400, 413],
+      ],
     ];
 
     for (const [label, payload, allowed] of malformed) {
@@ -506,7 +510,11 @@ async function main() {
       headers: { "content-type": "text/plain" },
       raw: "email=a@b.test",
     });
-    check("a non-JSON content type is refused", wrongType.status === 415, `status=${wrongType.status}`);
+    check(
+      "a non-JSON content type is refused",
+      wrongType.status === 415,
+      `status=${wrongType.status}`,
+    );
 
     // =====================================================================
     section("4g. CSRF and CORS");
@@ -633,7 +641,11 @@ async function main() {
     // Cookies: the session cookie must be HttpOnly and Secure.
     const freshLogin = await signIn(bob.email);
     const sessionCookie = freshLogin.cookies.find((c) => /session/i.test(c)) ?? "";
-    check("the session cookie is HttpOnly", /HttpOnly/i.test(sessionCookie), sessionCookie.slice(0, 60));
+    check(
+      "the session cookie is HttpOnly",
+      /HttpOnly/i.test(sessionCookie),
+      sessionCookie.slice(0, 60),
+    );
     // Secure and HSTS are properties of the transport: on a plain-http local
     // rehearsal they are correctly absent, so asserting them there would fail
     // for the right reason and teach nothing.
@@ -643,7 +655,10 @@ async function main() {
     } else {
       console.log("  ....  session cookie Secure flag: skipped (plain http)");
     }
-    check("the session cookie is SameSite-constrained", /SameSite=(Lax|Strict)/i.test(sessionCookie));
+    check(
+      "the session cookie is SameSite-constrained",
+      /SameSite=(Lax|Strict)/i.test(sessionCookie),
+    );
 
     // Telemetry must not carry secrets either.
     const telemetryLeak = (
@@ -656,7 +671,11 @@ async function main() {
         WHERE m ~* '(npg_|neondb_owner|postgres://|postgresql://|BETTER_AUTH_SECRET|ACCESS_CODE_PEPPER|IP_HASH_PEPPER|\\$scrypt\\$|\\bre_[A-Za-z0-9]{10})'
       `)
     ).rows[0]!;
-    check("no secret material is stored in telemetry metadata", telemetryLeak.n === "0", `rows=${telemetryLeak.n}`);
+    check(
+      "no secret material is stored in telemetry metadata",
+      telemetryLeak.n === "0",
+      `rows=${telemetryLeak.n}`,
+    );
 
     const passwordInLogs = (
       await db.execute<{ n: string }>(sql`
@@ -693,7 +712,11 @@ async function main() {
     section("4i. Stored XSS stays inert");
 
     const payload = `<script>alert(1)</script><img src=x onerror=alert(1)>"'`;
-    await call("/v1/me", { method: "PATCH", cookies: bob.cookies, body: { name: payload, company: payload } });
+    await call("/v1/me", {
+      method: "PATCH",
+      cookies: bob.cookies,
+      body: { name: payload, company: payload },
+    });
 
     const stored = (
       await db.execute<{ name: string }>(sql`SELECT name FROM users WHERE id = ${bob.userId}`)
@@ -712,12 +735,16 @@ async function main() {
     section("10. Migration state on the deployed database");
 
     const migrations = (
-      await db.execute<{ n: string }>(sql`SELECT COUNT(*)::text AS n FROM drizzle.__drizzle_migrations`)
+      await db.execute<{ n: string }>(
+        sql`SELECT COUNT(*)::text AS n FROM drizzle.__drizzle_migrations`,
+      )
     ).rows[0]!;
     check("every migration is applied", Number(migrations.n) >= 9, `applied=${migrations.n}`);
 
     const reapply = (
-      await db.execute<{ n: string }>(sql`SELECT COUNT(*)::text AS n FROM drizzle.__drizzle_migrations`)
+      await db.execute<{ n: string }>(
+        sql`SELECT COUNT(*)::text AS n FROM drizzle.__drizzle_migrations`,
+      )
     ).rows[0]!;
     check("migration state is stable across reads", reapply.n === migrations.n);
 
@@ -751,20 +778,22 @@ async function main() {
   } finally {
     await setOverrides(priorOverrides as Record<string, { limit: number }> | null).catch(() => {});
     for (const f of created) {
-      await db
-        .execute(sql`DELETE FROM accounts WHERE user_id = ${f.userId}`)
-        .catch(() => {});
+      await db.execute(sql`DELETE FROM accounts WHERE user_id = ${f.userId}`).catch(() => {});
       await db.execute(sql`DELETE FROM sessions WHERE user_id = ${f.userId}`).catch(() => {});
       await db.execute(sql`DELETE FROM two_factor WHERE user_id = ${f.userId}`).catch(() => {});
       await db
-        .execute(sql`UPDATE users SET status='deleted', banned=false, role='user',
+        .execute(
+          sql`UPDATE users SET status='deleted', banned=false, role='user',
                        email='sec-retired-' || id || '@deleted.invalid', anonymized_at = now()
-                     WHERE id = ${f.userId}`)
+                     WHERE id = ${f.userId}`,
+        )
         .catch(() => {});
     }
     await db
-      .execute(sql`UPDATE users SET status='deleted', email='sec-retired-' || id || '@deleted.invalid'
-                   WHERE normalized_email LIKE 'escalate-%'`)
+      .execute(
+        sql`UPDATE users SET status='deleted', email='sec-retired-' || id || '@deleted.invalid'
+                   WHERE normalized_email LIKE 'escalate-%'`,
+      )
       .catch(() => {});
     console.log(`\n  fixtures retired: ${created.length + 1}`);
     await pool.end();

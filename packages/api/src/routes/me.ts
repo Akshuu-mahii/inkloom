@@ -119,9 +119,7 @@ meRoutes.get("/", async (c) => {
    * wallet, which is a once-per-user event rather than a once-per-navigation
    * one. The common path stays at a single query.
    */
-  const balance =
-    row.wallet_balance ?? (await credits.getBalance(principal.userId)).balance;
-
+  const balance = row.wallet_balance ?? (await credits.getBalance(principal.userId)).balance;
 
   return ok(c, {
     // Note what is NOT here: no password hash, no session token, no internal
@@ -531,7 +529,10 @@ meRoutes.delete("/", validateBody(deleteAccountSchema), async (c) => {
   const input = body<{ currentPassword: string }>(c);
 
   const credential = await db.query.account.findFirst({
-    where: and(eq(accountTable.userId, principal.userId), eq(accountTable.providerId, "credential")),
+    where: and(
+      eq(accountTable.userId, principal.userId),
+      eq(accountTable.providerId, "credential"),
+    ),
   });
 
   /*
@@ -576,8 +577,7 @@ meRoutes.delete("/", validateBody(deleteAccountSchema), async (c) => {
     if (principal.role === "super_admin" && Number(others.rows[0]?.n ?? 0) === 0) {
       throw apiError("FORBIDDEN", {
         details: {
-          reason:
-            "You are the only owner. Promote another owner before erasing this account.",
+          reason: "You are the only owner. Promote another owner before erasing this account.",
         },
       });
     }

@@ -153,12 +153,12 @@ authRoutes.post(
       await defer(
         c,
         audit.security({
-        type: "turnstile_failed",
-        severity: "warning",
-        targetEmail: input.email,
-        ipHash: c.get("ipHash"),
-        requestId: c.get("requestId"),
-        metadata: { flow: "signup", errorCodes: verified.errorCodes },
+          type: "turnstile_failed",
+          severity: "warning",
+          targetEmail: input.email,
+          ipHash: c.get("ipHash"),
+          requestId: c.get("requestId"),
+          metadata: { flow: "signup", errorCodes: verified.errorCodes },
         }),
         "turnstile_failed",
       );
@@ -351,12 +351,12 @@ authRoutes.post(
       await defer(
         c,
         audit.security({
-        type: "rate_limit_exceeded",
-        severity: "warning",
-        targetEmail: input.email,
-        ipHash,
-        requestId: c.get("requestId"),
-        metadata: { flow: "login_cooldown", failures, waitSeconds },
+          type: "rate_limit_exceeded",
+          severity: "warning",
+          targetEmail: input.email,
+          ipHash,
+          requestId: c.get("requestId"),
+          metadata: { flow: "login_cooldown", failures, waitSeconds },
         }),
         "rate_limit_exceeded",
       );
@@ -422,12 +422,12 @@ authRoutes.post(
         await defer(
           c,
           audit.security({
-          type: account.role === "user" ? "login_succeeded" : "admin_login",
-          severity: account.role === "user" ? "info" : "warning",
-          userId: account.id,
-          ipHash,
-          requestId: c.get("requestId"),
-          userAgent: c.req.header("user-agent") ?? null,
+            type: account.role === "user" ? "login_succeeded" : "admin_login",
+            severity: account.role === "user" ? "info" : "warning",
+            userId: account.id,
+            ipHash,
+            requestId: c.get("requestId"),
+            userAgent: c.req.header("user-agent") ?? null,
           }),
           "security_event",
         );
@@ -448,13 +448,13 @@ authRoutes.post(
       await defer(
         c,
         audit.security({
-        type: "login_failed",
-        severity: failures >= 5 ? "warning" : "info",
-        targetEmail: input.email,
-        ipHash,
-        requestId: c.get("requestId"),
-        userAgent: c.req.header("user-agent") ?? null,
-        metadata: { failures: failures + 1 },
+          type: "login_failed",
+          severity: failures >= 5 ? "warning" : "info",
+          targetEmail: input.email,
+          ipHash,
+          requestId: c.get("requestId"),
+          userAgent: c.req.header("user-agent") ?? null,
+          metadata: { failures: failures + 1 },
         }),
         "login_failed",
       );
@@ -502,10 +502,10 @@ authRoutes.post("/logout-all", requireAuth, async (c) => {
   await defer(
     c,
     audit.security({
-    type: "sessions_revoked_all",
-    userId: principal.userId,
-    ipHash: c.get("ipHash"),
-    requestId: c.get("requestId"),
+      type: "sessions_revoked_all",
+      userId: principal.userId,
+      ipHash: c.get("ipHash"),
+      requestId: c.get("requestId"),
     }),
     "sessions_revoked_all",
   );
@@ -537,7 +537,8 @@ authRoutes.post("/verify-email", validateBody(verifyEmailSchema), async (c) => {
     .verifyEmail({ query: { token }, headers: c.req.raw.headers, asResponse: true })
     .catch((error: unknown) => {
       logger.warn("verify_email_threw", {
-        error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+        error:
+          error instanceof Error ? { name: error.name, message: error.message } : String(error),
       });
       return null;
     });
@@ -736,10 +737,10 @@ authRoutes.post(
     await defer(
       c,
       audit.security({
-      type: "password_reset_requested",
-      targetEmail: email,
-      ipHash: c.get("ipHash"),
-      requestId: c.get("requestId"),
+        type: "password_reset_requested",
+        targetEmail: email,
+        ipHash: c.get("ipHash"),
+        requestId: c.get("requestId"),
       }),
       "password_reset_requested",
     );
@@ -769,10 +770,10 @@ authRoutes.post("/reset-password", validateBody(resetPasswordSchema), async (c) 
   await defer(
     c,
     audit.security({
-    type: "password_reset_completed",
-    severity: "warning",
-    ipHash: c.get("ipHash"),
-    requestId: c.get("requestId"),
+      type: "password_reset_completed",
+      severity: "warning",
+      ipHash: c.get("ipHash"),
+      requestId: c.get("requestId"),
     }),
     "password_reset_completed",
   );
@@ -837,11 +838,11 @@ authRoutes.post("/change-password", requireAuth, validateBody(changePasswordSche
   await defer(
     c,
     audit.security({
-    type: "password_changed",
-    severity: "warning",
-    userId: principal.userId,
-    ipHash: c.get("ipHash"),
-    requestId: c.get("requestId"),
+      type: "password_changed",
+      severity: "warning",
+      userId: principal.userId,
+      ipHash: c.get("ipHash"),
+      requestId: c.get("requestId"),
     }),
     "password_changed",
   );
@@ -916,12 +917,12 @@ authRoutes.post("/set-password", requireAuth, validateBody(setPasswordSchema), a
   await defer(
     c,
     audit.security({
-    type: "password_changed",
-    severity: "warning",
-    userId: principal.userId,
-    ipHash: c.get("ipHash"),
-    requestId: c.get("requestId"),
-    metadata: { firstPassword: true },
+      type: "password_changed",
+      severity: "warning",
+      userId: principal.userId,
+      ipHash: c.get("ipHash"),
+      requestId: c.get("requestId"),
+      metadata: { firstPassword: true },
     }),
     "password_changed",
   );
@@ -1019,7 +1020,8 @@ authRoutes.post("/two-factor/confirm", requireAuth, validateBody(twoFactorSchema
     .catch((error: unknown) => {
       logger.warn("two_factor_confirm_threw", {
         userId: principal.userId,
-        error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+        error:
+          error instanceof Error ? { name: error.name, message: error.message } : String(error),
       });
       return null;
     });
@@ -1051,12 +1053,12 @@ authRoutes.post("/two-factor/confirm", requireAuth, validateBody(twoFactorSchema
     await defer(
       c,
       audit.security({
-      type: "admin_2fa_failed",
-      severity: "warning",
-      userId: principal.userId,
-      ipHash: c.get("ipHash"),
-      requestId: c.get("requestId"),
-      metadata: { stage: "setup" },
+        type: "admin_2fa_failed",
+        severity: "warning",
+        userId: principal.userId,
+        ipHash: c.get("ipHash"),
+        requestId: c.get("requestId"),
+        metadata: { stage: "setup" },
       }),
       "security_event",
     );
@@ -1121,11 +1123,11 @@ authRoutes.post(
     await defer(
       c,
       audit.security({
-      type: "two_factor_disabled",
-      severity: "warning",
-      userId: principal.userId,
-      ipHash: c.get("ipHash"),
-      requestId: c.get("requestId"),
+        type: "two_factor_disabled",
+        severity: "warning",
+        userId: principal.userId,
+        ipHash: c.get("ipHash"),
+        requestId: c.get("requestId"),
       }),
       "two_factor_disabled",
     );
@@ -1233,10 +1235,12 @@ async function classifyTwoFactorRefusal(
 ): Promise<{ kind: TwoFactorRefusalKind; error: AppError }> {
   const status = result?.status ?? 0;
   const libraryCode = result
-    ? ((await result
-        .clone()
-        .json()
-        .catch(() => null)) as { code?: string } | null)?.code
+    ? (
+        (await result
+          .clone()
+          .json()
+          .catch(() => null)) as { code?: string } | null
+      )?.code
     : null;
 
   if (status === 429 || libraryCode === "ACCOUNT_TEMPORARILY_LOCKED") {

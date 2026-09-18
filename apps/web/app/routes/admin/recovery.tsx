@@ -126,10 +126,10 @@ export default function Recovery({ loaderData }: Route.ComponentProps) {
         <section className="recovery-card recovery-alert">
           <h2 className="admin-h2">Stop and read this</h2>
           <p style={{ marginTop: "0.5rem" }}>
-            The ledger does not balance. Every second the site stays up, more writes land on top
-            of the damage and the recovery point moves further away. Put the site into
-            maintenance before investigating, and do not delete anything — the damage is
-            evidence, and the ledger will refuse to be rewritten anyway.
+            The ledger does not balance. Every second the site stays up, more writes land on top of
+            the damage and the recovery point moves further away. Put the site into maintenance
+            before investigating, and do not delete anything — the damage is evidence, and the
+            ledger will refuse to be rewritten anyway.
           </p>
         </section>
       )}
@@ -139,8 +139,8 @@ export default function Recovery({ loaderData }: Route.ComponentProps) {
           <h2 className="admin-h2">Append-only protection is missing</h2>
           <p style={{ marginTop: "0.5rem" }}>
             Expected two triggers, found {integrity.appendOnlyTriggers}. The credit ledger and the
-            audit trail can currently be rewritten. This is more urgent than any backup problem:
-            it means the record you would check against is no longer trustworthy.
+            audit trail can currently be rewritten. This is more urgent than any backup problem: it
+            means the record you would check against is no longer trustworthy.
           </p>
         </section>
       )}
@@ -208,49 +208,49 @@ export default function Recovery({ loaderData }: Route.ComponentProps) {
           These are the numbers that decide whether a restore is the right response at all.
         </p>
         <div className="table-scroll">
-        <table className="admin-table">
-          <tbody>
-            {(
-              [
-                ["Ledger drift", integrity.ledgerDrift, "Wallets that disagree with the ledger"],
+          <table className="admin-table">
+            <tbody>
+              {(
                 [
-                  "Duplicate redemptions",
-                  integrity.duplicateRedemptions,
-                  "One code granted twice to the same account",
-                ],
-                [
-                  "Duplicate ledger keys",
-                  integrity.duplicateLedgerKeys,
-                  "The same idempotency key applied more than once",
-                ],
-                [
-                  "Server errors, all time",
-                  integrity.serverErrors,
-                  "Unexplained 5xx across every route",
-                ],
-              ] as Array<[string, number, string]>
-            ).map(([label, value, note]) => (
-              <tr key={label}>
-                <td style={{ fontWeight: 600 }}>{label}</td>
+                  ["Ledger drift", integrity.ledgerDrift, "Wallets that disagree with the ledger"],
+                  [
+                    "Duplicate redemptions",
+                    integrity.duplicateRedemptions,
+                    "One code granted twice to the same account",
+                  ],
+                  [
+                    "Duplicate ledger keys",
+                    integrity.duplicateLedgerKeys,
+                    "The same idempotency key applied more than once",
+                  ],
+                  [
+                    "Server errors, all time",
+                    integrity.serverErrors,
+                    "Unexplained 5xx across every route",
+                  ],
+                ] as Array<[string, number, string]>
+              ).map(([label, value, note]) => (
+                <tr key={label}>
+                  <td style={{ fontWeight: 600 }}>{label}</td>
+                  <td>
+                    <Pill tone={value === 0 ? "positive" : "critical"}>{value}</Pill>
+                  </td>
+                  <td style={{ color: "var(--color-muted)" }}>{note}</td>
+                </tr>
+              ))}
+              <tr>
+                <td style={{ fontWeight: 600 }}>Append-only triggers</td>
                 <td>
-                  <Pill tone={value === 0 ? "positive" : "critical"}>{value}</Pill>
+                  <Pill tone={integrity.appendOnlyTriggers === 2 ? "positive" : "critical"}>
+                    {integrity.appendOnlyTriggers} of 2
+                  </Pill>
                 </td>
-                <td style={{ color: "var(--color-muted)" }}>{note}</td>
+                <td style={{ color: "var(--color-muted)" }}>
+                  The ledger and audit trail refuse to be rewritten
+                </td>
               </tr>
-            ))}
-            <tr>
-              <td style={{ fontWeight: 600 }}>Append-only triggers</td>
-              <td>
-                <Pill tone={integrity.appendOnlyTriggers === 2 ? "positive" : "critical"}>
-                  {integrity.appendOnlyTriggers} of 2
-                </Pill>
-              </td>
-              <td style={{ color: "var(--color-muted)" }}>
-                The ledger and audit trail refuse to be rewritten
-              </td>
-            </tr>
-          </tbody>
-        </table>
+            </tbody>
+          </table>
         </div>
       </section>
 
@@ -258,30 +258,30 @@ export default function Recovery({ loaderData }: Route.ComponentProps) {
       <section className="admin-section">
         <h2 className="admin-h2">How far back we can recover</h2>
         <div className="table-scroll">
-        <table className="admin-table">
-          <tbody>
-            <tr>
-              <td style={{ fontWeight: 600 }}>Point-in-time</td>
-              <td>{info.windows.pitrHours} hours</td>
-              <td style={{ color: "var(--color-muted)" }}>
-                Any moment in the window, no prior action needed
-              </td>
-            </tr>
-            <tr>
-              <td style={{ fontWeight: 600 }}>Stored archives</td>
-              <td>{info.windows.archiveRetentionDays} days</td>
-              <td style={{ color: "var(--color-muted)" }}>
-                Nightly, encrypted, only as good as the last successful run
-              </td>
-            </tr>
-          </tbody>
-        </table>
+          <table className="admin-table">
+            <tbody>
+              <tr>
+                <td style={{ fontWeight: 600 }}>Point-in-time</td>
+                <td>{info.windows.pitrHours} hours</td>
+                <td style={{ color: "var(--color-muted)" }}>
+                  Any moment in the window, no prior action needed
+                </td>
+              </tr>
+              <tr>
+                <td style={{ fontWeight: 600 }}>Stored archives</td>
+                <td>{info.windows.archiveRetentionDays} days</td>
+                <td style={{ color: "var(--color-muted)" }}>
+                  Nightly, encrypted, only as good as the last successful run
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
         <p className="admin-note">
           Restoring is a deliberate procedure, not a button — it discards every write since the
           recovery point. The steps are in <code>docs/incident-runbook.md</code>. Archives are
-          fetched from the Backup workflow by someone who already holds the decryption key, which
-          is deliberately not stored in this application.
+          fetched from the Backup workflow by someone who already holds the decryption key, which is
+          deliberately not stored in this application.
         </p>
       </section>
 
@@ -293,48 +293,48 @@ export default function Recovery({ loaderData }: Route.ComponentProps) {
           latest run happened to succeed.
         </p>
         <div className="table-scroll">
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Job</th>
-              <th>Result</th>
-              <th>Finished</th>
-              <th>Took</th>
-              <th>Rows</th>
-            </tr>
-          </thead>
-          <tbody>
-            {info.history.length === 0 && (
+          <table className="admin-table">
+            <thead>
               <tr>
-                <td colSpan={5} style={{ color: "var(--color-muted)" }}>
-                  Nothing recorded yet.
-                </td>
+                <th>Job</th>
+                <th>Result</th>
+                <th>Finished</th>
+                <th>Took</th>
+                <th>Rows</th>
               </tr>
-            )}
-            {info.history.map((run, i) => (
-              <tr key={`${run.job}-${run.finishedAt}-${i}`}>
-                <td>{JOBS[run.job]?.title ?? run.job}</td>
-                <td>
-                  <Pill tone={run.status === "ok" ? "positive" : "critical"}>{run.status}</Pill>
-                  {run.error && (
-                    <div
-                      style={{
-                        color: "var(--color-muted)",
-                        fontSize: "0.8125rem",
-                        marginTop: "0.25rem",
-                      }}
-                    >
-                      {run.error}
-                    </div>
-                  )}
-                </td>
-                <td>{formatRelative(run.finishedAt)}</td>
-                <td>{(run.durationMs / 1000).toFixed(1)}s</td>
-                <td>{run.rows}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {info.history.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ color: "var(--color-muted)" }}>
+                    Nothing recorded yet.
+                  </td>
+                </tr>
+              )}
+              {info.history.map((run, i) => (
+                <tr key={`${run.job}-${run.finishedAt}-${i}`}>
+                  <td>{JOBS[run.job]?.title ?? run.job}</td>
+                  <td>
+                    <Pill tone={run.status === "ok" ? "positive" : "critical"}>{run.status}</Pill>
+                    {run.error && (
+                      <div
+                        style={{
+                          color: "var(--color-muted)",
+                          fontSize: "0.8125rem",
+                          marginTop: "0.25rem",
+                        }}
+                      >
+                        {run.error}
+                      </div>
+                    )}
+                  </td>
+                  <td>{formatRelative(run.finishedAt)}</td>
+                  <td>{(run.durationMs / 1000).toFixed(1)}s</td>
+                  <td>{run.rows}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
 

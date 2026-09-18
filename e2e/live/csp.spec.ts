@@ -58,7 +58,9 @@ test.describe("the deployed CSP permits the application to run", () => {
        * React Router only sets this once hydration has run.
        */
       const hydrated = await page.evaluate(
-        () => document.documentElement.hasAttribute("data-hydrated") || "__reactRouterContext" in window,
+        () =>
+          document.documentElement.hasAttribute("data-hydrated") ||
+          "__reactRouterContext" in window,
       );
       expect(hydrated, `${path} did not hydrate — the bundle did not execute`).toBe(true);
     });

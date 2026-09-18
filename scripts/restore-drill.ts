@@ -208,7 +208,10 @@ async function main() {
       `  ..    live is now: users=${damaged.users} marker_balance=${damaged.marker_balance}` +
         ` (was ${expected.marker_balance})`,
     );
-    check("the live database genuinely diverged", damaged.marker_balance !== expected.marker_balance);
+    check(
+      "the live database genuinely diverged",
+      damaged.marker_balance !== expected.marker_balance,
+    );
 
     // =====================================================================
     console.log("\n=== 4. Restore into a separate recovery target ===");
@@ -239,7 +242,12 @@ async function main() {
   } finally {
     // --- clean up -------------------------------------------------------
     try {
-      pg(["psql", insideContainer(withDatabase(url, maintenanceDb(url))), "-c", `DROP DATABASE IF EXISTS ${RECOVERY_DB}`]);
+      pg([
+        "psql",
+        insideContainer(withDatabase(url, maintenanceDb(url))),
+        "-c",
+        `DROP DATABASE IF EXISTS ${RECOVERY_DB}`,
+      ]);
       console.log(`\n  cleaned up: ${RECOVERY_DB} dropped`);
     } catch (error) {
       console.log(`\n  WARN  could not drop ${RECOVERY_DB}: ${String(error).slice(0, 120)}`);
@@ -251,11 +259,15 @@ async function main() {
     }
     // The drill's own rows stay out of the live database.
     await db
-      .execute(sql`DELETE FROM credit_wallets WHERE user_id IN (SELECT id FROM users WHERE normalized_email LIKE 'restore-drill-%' OR normalized_email LIKE 'after-%')`)
+      .execute(
+        sql`DELETE FROM credit_wallets WHERE user_id IN (SELECT id FROM users WHERE normalized_email LIKE 'restore-drill-%' OR normalized_email LIKE 'after-%')`,
+      )
       .catch(() => {});
     await db
-      .execute(sql`UPDATE users SET status = 'deleted', email = 'drill-' || id || '@deleted.invalid'
-                    WHERE normalized_email LIKE 'restore-drill-%' OR normalized_email LIKE 'after-%'`)
+      .execute(
+        sql`UPDATE users SET status = 'deleted', email = 'drill-' || id || '@deleted.invalid'
+                    WHERE normalized_email LIKE 'restore-drill-%' OR normalized_email LIKE 'after-%'`,
+      )
       .catch(() => {});
     rmSync(work, { recursive: true, force: true });
     await pool.end();
@@ -284,7 +296,11 @@ async function verifyRecovered(
     `)
   ).rows[0]!;
 
-  check("users recovered exactly", got.users === expected.users, `${got.users} vs ${expected.users}`);
+  check(
+    "users recovered exactly",
+    got.users === expected.users,
+    `${got.users} vs ${expected.users}`,
+  );
   check(
     "ledger entries recovered exactly",
     got.ledger === expected.ledger,
@@ -322,7 +338,11 @@ async function verifyRecovered(
          (SELECT SUM(amount) FROM credit_ledger l WHERE l.user_id = w.user_id), 0)
     `)
   ).rows[0]!;
-  check("no ledger drift anywhere in the recovered database", driftRow.n === "0", `drift=${driftRow.n}`);
+  check(
+    "no ledger drift anywhere in the recovered database",
+    driftRow.n === "0",
+    `drift=${driftRow.n}`,
+  );
 
   // --- schema, not just rows -------------------------------------------
   const objects = (

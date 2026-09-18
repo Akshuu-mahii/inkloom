@@ -54,7 +54,12 @@ interface Reply {
 
 async function call(
   path: string,
-  init: { method?: string; body?: unknown; cookies?: string[]; headers?: Record<string, string> } = {},
+  init: {
+    method?: string;
+    body?: unknown;
+    cookies?: string[];
+    headers?: Record<string, string>;
+  } = {},
 ): Promise<Reply> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -106,7 +111,10 @@ async function seed(db: Database, label: string) {
     providerId: "credential",
     password: await hashPassword(PASSWORD),
   });
-  const login = await call("/v1/auth/login", { method: "POST", body: { email, password: PASSWORD } });
+  const login = await call("/v1/auth/login", {
+    method: "POST",
+    body: { email, password: PASSWORD },
+  });
   return { email, userId, cookies: login.cookies };
 }
 
@@ -446,11 +454,7 @@ async function main() {
     const firstExport = await call("/v1/me/export", { method: "POST", cookies: exporter.cookies });
     const secondExport = await call("/v1/me/export", { method: "POST", cookies: exporter.cookies });
 
-    check(
-      "the first export succeeds",
-      firstExport.status < 400,
-      `status=${firstExport.status}`,
-    );
+    check("the first export succeeds", firstExport.status < 400, `status=${firstExport.status}`);
     check(
       "the second is refused by the export budget",
       secondExport.status === 429,
@@ -538,14 +542,18 @@ async function main() {
       await db.execute(sql`DELETE FROM accounts WHERE user_id = ${f.userId}`).catch(() => {});
       await db.execute(sql`DELETE FROM sessions WHERE user_id = ${f.userId}`).catch(() => {});
       await db
-        .execute(sql`UPDATE users SET status='deleted', anonymized_at = now(),
+        .execute(
+          sql`UPDATE users SET status='deleted', anonymized_at = now(),
                        email='rl-retired-' || id || '@deleted.invalid'
-                     WHERE id = ${f.userId}`)
+                     WHERE id = ${f.userId}`,
+        )
         .catch(() => {});
     }
     await db
-      .execute(sql`UPDATE users SET status='deleted', email='rl-retired-' || id || '@deleted.invalid'
-                   WHERE normalized_email LIKE 'rl-signup-%'`)
+      .execute(
+        sql`UPDATE users SET status='deleted', email='rl-retired-' || id || '@deleted.invalid'
+                   WHERE normalized_email LIKE 'rl-signup-%'`,
+      )
       .catch(() => {});
     console.log(`\n  fixtures retired: ${created.length}`);
     await pool.end();

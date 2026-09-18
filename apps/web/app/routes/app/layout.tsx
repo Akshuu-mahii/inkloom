@@ -125,7 +125,7 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
       <div className="app-body">
         <nav className="app-nav" aria-label="Dashboard">
           <ul>
-              {/*
+            {/*
                 Fetch on hover or keyboard focus, not on click.
 
                 A dashboard tab is a client-side navigation that fetches the
@@ -147,12 +147,7 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
               */}
             {NAV.map((item) => (
               <li key={item.to}>
-                <NavLink
-                  to={item.to}
-                  end={item.end}
-                  prefetch="intent"
-                  className="app-nav-link"
-                >
+                <NavLink to={item.to} end={item.end} prefetch="intent" className="app-nav-link">
                   {item.label}
                 </NavLink>
               </li>

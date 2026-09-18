@@ -122,7 +122,10 @@ test.describe("security headers", () => {
     for (const path of ["/auth/signup", "/", "/pricing"]) {
       const csp = await cspFor(path);
       for (const directive of ["script-src", "frame-src", "connect-src"]) {
-        const values = csp.split(";").map((d) => d.trim()).find((d) => d.startsWith(directive));
+        const values = csp
+          .split(";")
+          .map((d) => d.trim())
+          .find((d) => d.startsWith(directive));
         expect(values, `${path} ${directive}`).toContain("challenges.cloudflare.com");
       }
     }
@@ -216,15 +219,20 @@ test.describe("no server code reached the browser", () => {
 
   test("the client bundle contains no database or secret material", async ({ page, request }) => {
     await page.goto("/");
-    const scripts = await page.locator("script[src]").evaluateAll((els) =>
-      els.map((e) => (e as HTMLScriptElement).src),
-    );
+    const scripts = await page
+      .locator("script[src]")
+      .evaluateAll((els) => els.map((e) => (e as HTMLScriptElement).src));
 
     expect(scripts.length, "expected at least one bundled script").toBeGreaterThan(0);
 
     for (const src of scripts) {
       const body = await (await request.get(src)).text();
-      for (const forbidden of ["neondb_owner", "ACCESS_CODE_PEPPER", "BETTER_AUTH_SECRET", "postgresql://"]) {
+      for (const forbidden of [
+        "neondb_owner",
+        "ACCESS_CODE_PEPPER",
+        "BETTER_AUTH_SECRET",
+        "postgresql://",
+      ]) {
         expect(body, `${forbidden} found in ${src}`).not.toContain(forbidden);
       }
     }

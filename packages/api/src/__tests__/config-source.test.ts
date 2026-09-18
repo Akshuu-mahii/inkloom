@@ -36,7 +36,10 @@ describe("configSource", () => {
   });
 
   it("prefers an explicit DATABASE_URL, so local development is unchanged", () => {
-    const env = { ...hyperdrive("postgresql://from-binding/db"), DATABASE_URL: "postgresql://explicit/db" };
+    const env = {
+      ...hyperdrive("postgresql://from-binding/db"),
+      DATABASE_URL: "postgresql://explicit/db",
+    };
 
     expect(configSource(env).DATABASE_URL).toBe("postgresql://explicit/db");
   });

@@ -41,8 +41,19 @@ interface Rule {
   skipInTests?: boolean;
 }
 
-/** Test and fixture paths, for `skipInTests`. */
-const TEST_PATH = /(?:__tests__|[./](?:test|spec)s?[./]|\.test\.|\.spec\.|^e2e\/|\/e2e\/)/;
+/**
+ * Test and fixture paths, for `skipInTests`.
+ *
+ * The second half of this pattern names the acceptance and drill harnesses in
+ * `scripts/` individually, and that is deliberate. They are test code by nature
+ * — every one of them seeds throwaway accounts on RFC-reserved domains and
+ * needs a literal password to sign in with — but `scripts/` as a whole is NOT
+ * exempt. It also holds real operational tooling (backup, bootstrap, migrate)
+ * where a hardcoded credential is exactly the finding this scanner exists for.
+ * Blanket-allowing the directory would close the gap by removing the check.
+ */
+const TEST_PATH =
+  /(?:__tests__|[./](?:test|spec)s?[./]|\.test\.|\.spec\.|^e2e\/|\/e2e\/|scripts\/(?:loadtest|capacity-test|drill-[a-z-]+|[a-z-]+-acceptance|verify-staging-fixes|restore-drill|failure-injection)\.)/;
 
 const RULES: Rule[] = [
   {

@@ -295,7 +295,6 @@ async function main() {
     const signIn = (email: string) =>
       call("/v1/auth/login", { method: "POST", body: { email, password: PASSWORD } });
 
-
     const alphaLogin = await signIn(alpha.email);
     check("a seeded account can sign in to staging", alphaLogin.status === 200);
 
@@ -303,7 +302,11 @@ async function main() {
       call("/v1/me", { method: "PATCH", cookies, body: { company: "Verification" } });
 
     const firstWrite = await write(alphaLogin.cookies);
-    check("an authenticated write succeeds", firstWrite.status < 400, `status=${firstWrite.status}`);
+    check(
+      "an authenticated write succeeds",
+      firstWrite.status < 400,
+      `status=${firstWrite.status}`,
+    );
     check(
       "and is charged to api.write.user",
       (await countedIn(db, "api.write.user", `user:${alpha.userId}`)) > 0,
@@ -533,7 +536,12 @@ async function main() {
     check("erasure succeeds where DELETE cannot", erased.status === 200, `status=${erased.status}`);
 
     const tomb = (
-      await db.execute<{ email: string; name: string; status: string; anonymized_at: string | null }>(
+      await db.execute<{
+        email: string;
+        name: string;
+        status: string;
+        anonymized_at: string | null;
+      }>(
         sql`SELECT email, name, status, anonymized_at::text AS anonymized_at
               FROM users WHERE id = ${dora.userId}`,
       )
@@ -557,10 +565,18 @@ async function main() {
     check("no credential, session or second factor remains", leftovers?.n === "0");
 
     const stillIn = await call("/v1/me", { cookies: doraLogin.cookies });
-    check("the live session is dead immediately", stillIn.status === 401, `status=${stillIn.status}`);
+    check(
+      "the live session is dead immediately",
+      stillIn.status === 401,
+      `status=${stillIn.status}`,
+    );
 
     const reLogin = await signIn(dora.email);
-    check("the old password no longer signs in", reLogin.status === 401, `status=${reLogin.status}`);
+    check(
+      "the old password no longer signs in",
+      reLogin.status === 401,
+      `status=${reLogin.status}`,
+    );
 
     const auditAfter = Number(
       (
@@ -581,7 +597,11 @@ async function main() {
             (SELECT SUM(amount) FROM credit_ledger l WHERE l.user_id = w.user_id), 0)) AS drift,
         (SELECT COALESCE(SUM(status_5xx), 0)::text FROM request_metrics)                AS five_xx
     `);
-    check("ledger drift is zero", integrity.rows[0]?.drift === "0", `drift=${integrity.rows[0]?.drift}`);
+    check(
+      "ledger drift is zero",
+      integrity.rows[0]?.drift === "0",
+      `drift=${integrity.rows[0]?.drift}`,
+    );
     console.log(`  ..    5xx recorded all-time on staging: ${integrity.rows[0]?.five_xx}`);
   } finally {
     const outcomes: string[] = [];

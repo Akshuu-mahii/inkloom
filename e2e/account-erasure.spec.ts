@@ -46,10 +46,9 @@ async function accountWithHistory(page: Page) {
   await page.getByRole("button", { name: /Redeem code/ }).click();
   await expect(page.getByText(/in credits added/i)).toBeVisible({ timeout: 20_000 });
 
-  const [row] = await query<{ id: string }>(
-    "SELECT id FROM users WHERE normalized_email = $1",
-    [email.toLowerCase()],
-  );
+  const [row] = await query<{ id: string }>("SELECT id FROM users WHERE normalized_email = $1", [
+    email.toLowerCase(),
+  ]);
 
   const [history] = await query<{ ledger: string; audit: string }>(
     `SELECT (SELECT COUNT(*) FROM credit_ledger WHERE user_id = $1)::text AS ledger,

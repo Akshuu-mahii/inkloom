@@ -577,7 +577,9 @@ describe("password reset", () => {
            WHERE bucket = 'auth.forgot_password.email'
              AND subject = ${"email:" + VALID.email}`,
     );
-    expect(Number(counted.rows[0]!.total), "each request must be charged").toBeGreaterThanOrEqual(3);
+    expect(Number(counted.rows[0]!.total), "each request must be charged").toBeGreaterThanOrEqual(
+      3,
+    );
 
     /*
      * Past the budget the response stays NEUTRAL rather than becoming a 429.
@@ -989,7 +991,6 @@ describe("two-factor enrolment", () => {
     expect(after[0]!.verified).toBe(false);
   });
 });
-
 
 // ===========================================================================
 

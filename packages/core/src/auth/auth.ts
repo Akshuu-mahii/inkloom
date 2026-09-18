@@ -28,10 +28,7 @@ import type { Logger } from "../util/logger";
 import type { Mailer } from "../notifications/mailer";
 import { hashIp } from "../util/crypto";
 import { ADMIN_ROLES } from "../rbac/permissions";
-import {
-  TWO_FACTOR_LOCK_SECONDS,
-  TWO_FACTOR_MAX_FAILED_ATTEMPTS,
-} from "../rate-limit/policies";
+import { TWO_FACTOR_LOCK_SECONDS, TWO_FACTOR_MAX_FAILED_ATTEMPTS } from "../rate-limit/policies";
 import { deviceLabel } from "./session-policy";
 
 /**
