@@ -86,7 +86,39 @@ async function main() {
   const file = join(outDir, `inkloom-${label}-${stamp}.sql.gz`);
 
   console.log(`\n  source: ${describeTarget(url)}`);
-  console.log(`  target: ${file}\n`);
+  console.log(`  target: ${file}`);
+
+  /*
+   * A preflight that names the environment, without naming any secret.
+   *
+   * Written after a failed CI run that could not be diagnosed from here at all:
+   * the summary said "exit code 1", and every candidate cause — a missing key,
+   * a key too short, the wrong pg_dump, an unreachable host — produces the same
+   * line. None of the values below are sensitive: a length is not a key, and a
+   * hostname is not a connection string. Together they identify which of those
+   * it was on the first read, instead of after a round of guessing.
+   */
+  const keyLength = (process.env.BACKUP_ENCRYPTION_KEY ?? "").length;
+  let pgDumpVersion = "NOT FOUND";
+  try {
+    const direct = spawnSync("pg_dump", ["--version"], { encoding: "utf8" });
+    pgDumpVersion =
+      direct.status === 0
+        ? `${direct.stdout.trim()} (PATH)`
+        : `${execFileSync("docker", ["exec", "-i", process.env.PG_CONTAINER ?? "inkloom-postgres", "pg_dump", "--version"], { encoding: "utf8" }).trim()} (container)`;
+  } catch {
+    /* reported as NOT FOUND below */
+  }
+
+  console.log(`  preflight:`);
+  console.log(`    node            ${process.version}`);
+  console.log(`    pg_dump         ${pgDumpVersion}`);
+  console.log(`    database host   ${new URL(url).hostname}`);
+  console.log(
+    `    encryption key  ${keyLength === 0 ? "NOT SET" : `set, ${keyLength} characters`}` +
+      `${keyLength > 0 && keyLength < 16 ? "  <-- TOO SHORT, minimum is 16" : ""}`,
+  );
+  console.log(`    CI              ${process.env.CI ? "yes" : "no"}\n`);
 
   const { db, pool } = createDb({ connectionString: url, max: 1 });
   let status: "ok" | "failed" = "ok";
@@ -171,6 +203,18 @@ async function main() {
     status = "failed";
     error = e instanceof Error ? e.message : String(e);
     console.error(`\n  BACKUP FAILED: ${error}`);
+
+    /*
+     * Put the reason on the run summary, not only in the step log.
+     *
+     * Without this a failed run shows "Process completed with exit code 1" on
+     * the summary page and the actual cause is buried several clicks deep in a
+     * collapsed step. The first real failure of this workflow cost exactly that
+     * detour, which is the wrong thing to be doing during a backup outage.
+     */
+    if (process.env.CI) {
+      console.log(`::error title=Backup failed::${error.replace(/\n/g, " ")}`);
+    }
   } finally {
     /*
      * Record the run either way, and never let recording fail the backup.

@@ -62,13 +62,35 @@ jobs:
       # the runner's default client is not necessarily enough. Installing
       # explicitly turns a confusing version error into a step that either works
       # or fails loudly.
-      - name: Install a matching pg_dump
+      # Installing the package is NOT enough, and this cost a failed run.
+      #
+      # Ubuntu ships `/usr/bin/pg_dump` as a postgresql-common wrapper that
+      # selects a version, and installing client-17 alongside the preinstalled
+      # 16 does not change which one it picks. The result was
+      # "aborting because of server version mismatch: server 17.11, pg_dump
+      # 16.15" — while the step's own `pg_dump --version` line sat in the log
+      # saying 16.15 to nobody, because it was printed and never asserted.
+      #
+      # So: put the versioned directory FIRST on PATH, then FAIL if the version
+      # is still wrong. A diagnostic that cannot fail the build is not a check.
+      - name: Install and select pg_dump 17
         run: |
+          set -euo pipefail
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client-17
-          pg_dump --version
+
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+
+          version=$(pg_dump --version | grep -oE '[0-9]+' | head -1)
+          echo "pg_dump resolves to: $(command -v pg_dump) ($(pg_dump --version))"
+          if [ "$version" != "17" ]; then
+            echo "::error title=Wrong pg_dump::Resolved to version $version, but Neon runs 17. \
+            pg_dump refuses to dump a newer server, so the backup would fail."
+            exit 1
+          fi
 
       - name: Take, verify and encrypt
         env:
@@ -139,12 +161,24 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
 
-      - name: Install a matching psql
+      # Same wrapper problem as the backup job — see the note there.
+      - name: Install and select psql 17
         run: |
+          set -euo pipefail
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client-17
+
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+
+          version=$(psql --version | grep -oE '[0-9]+' | head -1)
+          echo "psql resolves to: $(command -v psql) ($(psql --version))"
+          if [ "$version" != "17" ]; then
+            echo "::error title=Wrong psql::Resolved to version $version, but the archives come from 17."
+            exit 1
+          fi
 
       # The newest STORED staging archive, from an earlier run. Not a fresh one:
       # a restore test that backs up and immediately restores proves only that
