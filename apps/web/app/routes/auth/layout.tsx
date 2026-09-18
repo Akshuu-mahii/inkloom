@@ -17,7 +17,10 @@ export default function AuthLayout() {
     <div className="auth-shell">
       <aside className="auth-aside" aria-hidden="true">
         <div>
-          <Logo size={22} />
+          {/* The panel is --color-ink, so the wordmark has to be the paper
+              cut: the default renders ink letters that vanish entirely and
+              leave a floating orange loop. */}
+          <Logo size={22} invert />
           <p className="auth-aside-copy">
             Inkloom is building specialised models for logo design. Generation is not live yet —
             early access reserves your place and your credits.

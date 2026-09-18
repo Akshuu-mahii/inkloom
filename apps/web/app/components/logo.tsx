@@ -27,8 +27,17 @@ export interface LogoProps {
   /** Accepted and ignored: the image does not draw itself. */
   animate?: boolean;
   className?: string;
-  /** Render the loop in ink instead of orange — for dark or dense contexts. */
+  /** Render the loop in ink instead of orange — for dense, single-colour contexts. */
   monochrome?: boolean;
+  /**
+   * Paper letters instead of ink, for the ink-coloured panels.
+   *
+   * Not cosmetic: the auth screens put the wordmark on `--color-ink`, where
+   * ink letters are invisible and only the orange loop survives — which is
+   * what shipped, and read as a bare orange squiggle in the corner of every
+   * sign-in page. The loop stays orange, because the loop is the brand.
+   */
+  invert?: boolean;
 }
 
 /**
@@ -39,12 +48,17 @@ export interface LogoProps {
  */
 const WORDMARK_ASPECT = 790 / 160;
 
-export function Logo({ size = 28, className, monochrome = false }: LogoProps) {
+export function Logo({ size = 28, className, monochrome = false, invert = false }: LogoProps) {
   const height = size;
+  const src = monochrome
+    ? "/logo-wordmark-mono.png"
+    : invert
+      ? "/logo-wordmark-invert.png"
+      : "/logo-wordmark.png";
 
   return (
     <img
-      src={monochrome ? "/logo-wordmark-mono.png" : "/logo-wordmark.png"}
+      src={src}
       alt="Inkloom"
       className={className}
       width={Math.round(height * WORDMARK_ASPECT)}

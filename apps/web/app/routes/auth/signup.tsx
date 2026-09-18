@@ -4,6 +4,7 @@ import type { Route } from "./+types/signup";
 import { AuthHeading } from "./layout";
 import { Field, Notice } from "../../components/ui";
 import { Turnstile, type TurnstileStatus } from "../../components/turnstile";
+import { BusyLabel } from "../../components/infinity-mark";
 import { call, fieldErrors } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
 import { servicesContext } from "../../lib/context";
@@ -227,6 +228,12 @@ export default function Signup({ loaderData }: Route.ComponentProps) {
           <Turnstile siteKey={loaderData.turnstileSiteKey} onStatusChange={setCheckStatus} />
         )}
 
+        {/*
+          The apostrophe in "Checking you're human…" is ASCII on purpose. These
+          strings are the button's accessible name, and swapping in a
+          typographic quote silently stops anything matching on it — which is
+          how a passing test suite started failing on a purely visual change.
+        */}
         <button
           type="submit"
           className="btn btn-primary"
@@ -234,13 +241,15 @@ export default function Signup({ loaderData }: Route.ComponentProps) {
              guaranteed rejection. */
           disabled={submitting || checkBlocked}
         >
-          {submitting
-            ? "Creating your account…"
-            : checkFailed
-              ? "Human check unavailable"
-              : checkBlocked
-                ? "Checking you're human…"
-                : "Create account"}
+          {submitting ? (
+            <BusyLabel>Creating your account…</BusyLabel>
+          ) : checkFailed ? (
+            "Human check unavailable"
+          ) : checkBlocked ? (
+            <BusyLabel>{"Checking you're human…"}</BusyLabel>
+          ) : (
+            "Create account"
+          )}
         </button>
       </Form>
 

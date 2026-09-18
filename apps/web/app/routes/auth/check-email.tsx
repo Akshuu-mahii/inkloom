@@ -13,6 +13,7 @@ import { AuthHeading } from "./layout";
 import { Notice } from "../../components/ui";
 import { call } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
+import { BusyLabel } from "../../components/infinity-mark";
 
 export function meta({ location }: Route.MetaArgs) {
   return buildMeta({
@@ -127,7 +128,11 @@ export default function CheckEmail() {
           disabled={navigation.state === "submitting"}
           style={{ width: "100%" }}
         >
-          {navigation.state === "submitting" ? "Sending…" : "Send the email again"}
+          {navigation.state === "submitting" ? (
+            <BusyLabel>Sending…</BusyLabel>
+          ) : (
+            "Send the email again"
+          )}
         </button>
       </Form>
 

@@ -4,6 +4,7 @@ import { AuthHeading } from "./layout";
 import { Field, Notice } from "../../components/ui";
 import { call, fieldErrors } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
+import { BusyLabel } from "../../components/infinity-mark";
 
 export function meta({ location }: Route.MetaArgs) {
   return buildMeta({
@@ -110,7 +111,7 @@ export default function ResetPassword() {
         </Notice>
 
         <button type="submit" className="btn btn-ink" disabled={navigation.state === "submitting"}>
-          {navigation.state === "submitting" ? "Saving…" : "Save new password"}
+          {navigation.state === "submitting" ? <BusyLabel>Saving…</BusyLabel> : "Save new password"}
         </button>
       </Form>
     </>

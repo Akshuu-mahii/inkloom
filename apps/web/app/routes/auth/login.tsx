@@ -7,6 +7,7 @@ import { call, withCookies } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
 import { servicesContext } from "../../lib/context";
 import { safeRedirectPath } from "@inkloom/core/security";
+import { BusyLabel } from "../../components/infinity-mark";
 
 export function meta({ location }: Route.MetaArgs) {
   return buildMeta({
@@ -163,7 +164,7 @@ export default function Login({ loaderData }: Route.ComponentProps) {
         )}
 
         <button type="submit" className="btn btn-ink" disabled={submitting}>
-          {submitting ? "Signing in…" : "Sign in"}
+          {submitting ? <BusyLabel>Signing in…</BusyLabel> : "Sign in"}
         </button>
       </Form>
 

@@ -463,6 +463,35 @@ svg {
    the curve — an earlier version hardcoded a measured length of 165 against a
    path that was actually 226 units long, so the loop only ever drew two-thirds
    of itself. Normalising removes the whole class of bug. */
+/* --- The loading figure ---------------------------------------------------
+   A dash travelling the infinity path. `stroke-dashoffset` alone would make it
+   jump when it wraps, so the dash is a fixed length and only the offset moves
+   through one full path length per cycle — the travel is continuous and the
+   loop genuinely has no end. */
+.infinity-trace {
+  stroke-dasharray: 26 74;
+  animation: trace-infinity 1400ms linear infinite;
+}
+
+@keyframes trace-infinity {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Motion is already flattened globally under prefers-reduced-motion, which
+   would leave this frozen mid-dash and looking broken. Show the whole figure
+   instead: still a mark, just not a moving one. */
+@media (prefers-reduced-motion: reduce) {
+  .infinity-trace {
+    stroke-dasharray: none;
+    animation: none;
+  }
+}
+
 @keyframes draw-loop {
   from {
     stroke-dashoffset: 100;
