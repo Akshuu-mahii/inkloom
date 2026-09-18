@@ -65,7 +65,28 @@ const E2E_OVERRIDES = {
 };
 
 export default async function globalSetup() {
+  /*
+   * A DEPLOYED target prepares nothing, and must not.
+   *
+   * This setup raises the rate limits and clears the counters so a full suite
+   * is not throttled by the limiter it shares with production. That is right
+   * for a local run, which creates dozens of accounts. It is wrong for the
+   * post-deploy smoke test, which makes about twenty read-only requests
+   * against a live environment — rewriting that environment's abuse controls
+   * to check that the marketing pages render is a far larger action than the
+   * check itself, and it would leave them raised if the run were interrupted.
+   *
+   * So a run pointed at E2E_BASE_URL with no database simply skips this. A run
+   * with a database still goes through every guard below, including the
+   * refusal to touch anything non-local.
+   */
   const url = process.env.DATABASE_URL;
+  if (!url && process.env.E2E_BASE_URL) {
+    console.log(
+      `  e2e: testing ${process.env.E2E_BASE_URL} as-is — no database, so rate limits are left alone`,
+    );
+    return;
+  }
   if (!url) throw new Error("DATABASE_URL is not set; cannot prepare the e2e environment.");
 
   const parsed = new URL(url);
