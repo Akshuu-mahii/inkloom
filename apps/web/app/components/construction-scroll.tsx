@@ -20,7 +20,7 @@
  *     leak a ScrollTrigger or a RAF loop.
  */
 import { useEffect, useRef, useState } from "react";
-import { LOOP_ASPECT, LOOP_PATH, LOOP_STROKE, LOOP_VIEWBOX } from "./logo";
+import { INFINITY_ASPECT, INFINITY_PATH } from "./infinity-mark";
 
 export function ConstructionScroll({ children }: { children: React.ReactNode }) {
   const container = useRef<HTMLDivElement>(null);
@@ -48,6 +48,7 @@ export function ConstructionScroll({ children }: { children: React.ReactNode }) 
         const guides = scope.querySelectorAll<SVGElement>("[data-build='guide']");
         const circles = scope.querySelectorAll<SVGElement>("[data-build='circle']");
         const stroke = scope.querySelector<SVGPathElement>("[data-build='stroke']");
+        const fill = scope.querySelector<SVGPathElement>("[data-build='fill']");
 
         const timeline = gsap.timeline({
           scrollTrigger: {
@@ -69,7 +70,10 @@ export function ConstructionScroll({ children }: { children: React.ReactNode }) 
             "<0.2",
           )
           .fromTo(stroke, { strokeDashoffset: 100 }, { strokeDashoffset: 0, duration: 1.6 }, "<0.3")
-          .to(guides, { opacity: 0.45, duration: 0.5 }, "<0.8");
+          // The ink last, so the sequence ends on the finished mark rather than
+          // on a drawing of one.
+          .fromTo(fill, { opacity: 0 }, { opacity: 1, duration: 0.7 }, "<1.1")
+          .to(guides, { opacity: 0.4, duration: 0.5 }, "<0.3");
       }, scope);
 
       cleanup = () => context.revert();
@@ -89,6 +93,7 @@ export function ConstructionScroll({ children }: { children: React.ReactNode }) 
            import fails — the mark is simply drawn complete. Nothing depends on
            JavaScript arriving. */
         [data-construction="animated"] [data-build="stroke"] { stroke-dasharray: 100; }
+        [data-construction="animated"] [data-build="fill"] { opacity: 0; }
       `}</style>
     </div>
   );
@@ -98,34 +103,47 @@ export function ConstructionScroll({ children }: { children: React.ReactNode }) 
  * The mark, marked up so the timeline can address its parts.
  *
  * Static and complete on its own; the attributes are inert without GSAP.
+ *
+ * The geometry shown is the mark's OWN: two bulbs of radius 131 whose centres
+ * sit 224 apart, their counters at radius 53, and the crossing on the vertical
+ * between them. It used to draw two separate rings, which is the wordmark's
+ * "oo" rather than this figure — a different construction, demonstrated on a
+ * page about how this one is built.
  */
 export function ConstructionMark({ size = 340 }: { size?: number }) {
   return (
     <svg
       width={size}
-      height={size / LOOP_ASPECT}
-      viewBox={LOOP_VIEWBOX}
+      height={size / INFINITY_ASPECT}
+      viewBox="0 0 487 262"
       role="img"
-      aria-label="The Inkloom mark, constructed from two circles"
+      aria-label="The Inkloom mark, constructed from two bulbs and a single crossing"
     >
       <g className="construction">
-        <line data-build="guide" x1="0" y1="225" x2="840" y2="225" />
-        <line data-build="guide" x1="225" y1="30" x2="225" y2="420" />
-        <line data-build="guide" x1="615" y1="30" x2="615" y2="420" />
-        <line data-build="guide" x1="420" y1="30" x2="420" y2="420" />
-        <circle data-build="circle" cx="225" cy="225" r="158" />
-        <circle data-build="circle" cx="615" cy="225" r="158" />
+        <line data-build="guide" x1="0" y1="131" x2="487" y2="131" />
+        <line data-build="guide" x1="131.5" y1="0" x2="131.5" y2="262" />
+        <line data-build="guide" x1="355.5" y1="0" x2="355.5" y2="262" />
+        <line data-build="guide" x1="243.5" y1="0" x2="243.5" y2="262" />
+        <circle data-build="circle" cx="131.5" cy="131" r="131" />
+        <circle data-build="circle" cx="355.5" cy="131" r="131" />
+        <circle data-build="circle" cx="131.5" cy="131" r="53" />
+        <circle data-build="circle" cx="355.5" cy="131" r="53" />
       </g>
+
+      {/* The contour, struck first — the drawing. */}
       <path
         data-build="stroke"
-        d={LOOP_PATH}
+        d={INFINITY_PATH}
         fill="none"
-        stroke="var(--color-loop)"
-        strokeWidth={LOOP_STROKE}
+        stroke="var(--color-ink)"
+        strokeWidth={4}
         strokeLinecap="round"
         strokeLinejoin="round"
         pathLength={100}
       />
+
+      {/* Then the ink goes down, and it is a mark rather than a drawing. */}
+      <path data-build="fill" d={INFINITY_PATH} fill="var(--color-loop)" />
     </svg>
   );
 }

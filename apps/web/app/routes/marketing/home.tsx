@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { Link } from "react-router";
 import type { Route } from "./+types/home";
-import { LoopSpecimen } from "../../components/logo";
+import { InfinitySpecimen } from "../../components/infinity-mark";
 import { buildMeta, faqJsonLd, organizationJsonLd, websiteJsonLd } from "../../lib/seo";
 import { TrackView } from "../../components/track";
 import { track } from "../../lib/analytics";
@@ -121,19 +121,22 @@ function Hero() {
         </div>
 
         <div className="hero-mark">
-          <LoopSpecimen size={420} animate showConstruction />
+          <InfinitySpecimen size={420} />
+          {/* The spec describes the mark that is actually on the page. It used
+              to read "two circles, r = 158", which was the wordmark's "oo" —
+              a different construction from this one, and wrong beside it. */}
           <dl className="spec-list">
             <div>
               <dt>Construction</dt>
-              <dd>Two circles, r = 158</dd>
+              <dd>One continuous path</dd>
             </div>
             <div>
-              <dt>Junction</dt>
-              <dd>Strokes overlap by 60u</dd>
+              <dt>Crossing</dt>
+              <dd>Single, at the midpoint</dd>
             </div>
             <div>
-              <dt>Stroke</dt>
-              <dd>Monoline, 134u</dd>
+              <dt>Terminals</dt>
+              <dd>None — the path never ends</dd>
             </div>
           </dl>
         </div>

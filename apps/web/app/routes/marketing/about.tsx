@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import type { Route } from "./+types/about";
 import { buildMeta } from "../../lib/seo";
-import { LoopSpecimen } from "../../components/logo";
+import { InfinitySpecimen } from "../../components/infinity-mark";
 
 export function meta({ location }: Route.MetaArgs) {
   return buildMeta({
@@ -76,7 +76,7 @@ export default function About() {
             </p>
           </div>
           <div style={{ display: "grid", placeItems: "center" }}>
-            <LoopSpecimen size={300} animate={false} showConstruction />
+            <InfinitySpecimen size={300} />
           </div>
         </div>
       </section>

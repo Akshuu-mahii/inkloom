@@ -492,45 +492,6 @@ svg {
   }
 }
 
-@keyframes draw-loop {
-  from {
-    stroke-dashoffset: 100;
-  }
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-@keyframes ink-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.loop-path {
-  stroke-dasharray: 100;
-  animation: draw-loop 1600ms cubic-bezier(0.65, 0, 0.35, 1) forwards;
-}
-
-.loop-fill {
-  opacity: 0;
-  animation: ink-in 700ms ease 1300ms forwards;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .loop-path {
-    stroke-dashoffset: 0;
-    animation: none;
-  }
-  .loop-fill {
-    opacity: 1;
-    animation: none;
-  }
-}
-
 /* --- Construction grid ---------------------------------------------------
    The faint circle-and-crosshair layer behind the hero mark, borrowed from a
    real logo spec sheet. Purely a backdrop; hidden from assistive tech. */

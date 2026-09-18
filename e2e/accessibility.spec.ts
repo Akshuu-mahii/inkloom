@@ -180,18 +180,21 @@ test.describe("reduced motion", () => {
     await page.goto("/");
     await settled(page);
 
-    const animation = await page
-      // The mark's rings are <circle>, not <path>: an arc path leaves a seam
-      // where its start meets its end, visible at hero size.
-      .locator("svg .loop-path")
+    /*
+     * The mark's contour travels its path forever. Frozen mid-travel it is a
+     * broken-looking fragment of a logo, so reduced motion has to show the
+     * whole figure rather than merely stop the clock — which is what the
+     * global `animation-duration: 0.01ms` override alone would do.
+     */
+    const state = await page
+      .locator("svg .infinity-trace")
       .first()
       .evaluate((el) => {
         const s = getComputedStyle(el);
-        return { name: s.animationName, offset: s.strokeDashoffset };
+        return { name: s.animationName, dash: s.strokeDasharray };
       });
 
-    // Either no animation at all, or already at its final state.
-    expect(animation.name === "none" || animation.offset === "0px").toBe(true);
+    expect(state.name === "none" || state.dash === "none").toBe(true);
     await context.close();
   });
 });

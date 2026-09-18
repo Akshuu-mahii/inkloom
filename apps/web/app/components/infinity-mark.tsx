@@ -24,6 +24,10 @@ const INFINITY_PATH =
 
 const ASPECT = 487 / 262;
 
+/** Shared with the construction drawing, which builds the same figure. */
+export const INFINITY_ASPECT = ASPECT;
+export { INFINITY_PATH };
+
 export function InfinityMark({
   size = 24,
   className,
@@ -130,5 +134,73 @@ export function BusyLabel({ children }: { children: React.ReactNode }) {
       <Loading size={14} label="" />
       {children}
     </span>
+  );
+}
+
+/**
+ * The mark at display size, drawing itself without end.
+ *
+ * The supplied artwork is a FILLED silhouette — the path traces the outside of
+ * the ribbon and both counters — so stroking it draws the mark's contour
+ * rather than its centreline. That is the right reading here: this site's
+ * language is a specification sheet, and a contour being struck around a form
+ * is what a drawing looks like while it is being made.
+ *
+ * The figure underneath is the finished mark, held at low opacity so the hero
+ * is never empty and never a bare moving line. The travelling dash is the same
+ * one the loading state uses, at hero weight: one idea, two sizes.
+ *
+ * It runs continuously, which is a deliberate exception to this site's rule
+ * that motion is triggered rather than ambient — the subject is a loop with no
+ * end, and a loop that stops making its own point is the wrong drawing.
+ */
+export function InfinitySpecimen({
+  size = 320,
+  className,
+}: {
+  /** Width in pixels; the height follows the artwork's ratio. */
+  size?: number;
+  className?: string;
+}) {
+  const id = useId();
+
+  return (
+    <svg
+      width={size}
+      height={Math.round(size / ASPECT)}
+      viewBox="0 0 487 262"
+      className={className}
+      role="img"
+      aria-label="The Inkloom mark: a continuous loop with no end"
+    >
+      <defs>
+        <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#FF5F20" />
+          <stop offset="0.52" stopColor="#FE6124" />
+          <stop offset="1" stopColor="#FF6425" />
+        </linearGradient>
+      </defs>
+
+      {/* The mark, solid and at full strength — this is the logo, not a
+          backdrop for an effect. */}
+      <path d={INFINITY_PATH} fill={`url(#${id})`} />
+
+      {/* The drawing of it, which never finishes.
+          INK, not paper: the contour runs along the outside of the form, where
+          a paper-coloured line is invisible against the page and only appears
+          where it crosses the fill — so it flickered in and out rather than
+          travelling. Ink reads on both sides of the edge, which is what a
+          drawn rule does. */}
+      <path
+        className="infinity-trace infinity-trace-display"
+        d={INFINITY_PATH}
+        fill="none"
+        stroke="var(--color-ink)"
+        strokeWidth={4}
+        strokeLinecap="round"
+        opacity={0.55}
+        pathLength={100}
+      />
+    </svg>
   );
 }

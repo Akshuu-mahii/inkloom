@@ -107,19 +107,19 @@ export default function HowItWorks() {
             <dl className="spec">
               <div>
                 <dt>Constraint</dt>
-                <dd>Two counters, equal weight, continuous stroke</dd>
+                <dd>Two counters, equal weight, one unbroken form</dd>
               </div>
               <div>
                 <dt>Primitive</dt>
-                <dd>Two circles, radius 158</dd>
+                <dd>Two bulbs, radius 131</dd>
               </div>
               <div>
                 <dt>Junction</dt>
-                <dd>Strokes overlap by 60u, no visible seam</dd>
+                <dd>A single crossing, on the centre vertical</dd>
               </div>
               <div>
-                <dt>Stroke</dt>
-                <dd>Monoline, 134u, closed rings</dd>
+                <dt>Terminals</dt>
+                <dd>None — the contour closes on itself</dd>
               </div>
               <div>
                 <dt>Result</dt>
