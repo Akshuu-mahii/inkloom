@@ -168,7 +168,9 @@
         "TURNSTILE_ENABLED": "true",
         // See the note in the staging block: this must be repeated per
         // environment, and an empty value silently breaks every form.
-        "TURNSTILE_SITE_KEY": "",
+        // This is the "inkloom-production" widget, scoped to inkloom.art only;
+        // staging has its own, so a problem with one cannot reach the other.
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAE8XLbusGd7fnZuj",
         "RATE_LIMIT_ENABLED": "true",
         "ANALYTICS_ENABLED": "true",
         "LOG_LEVEL": "info",
