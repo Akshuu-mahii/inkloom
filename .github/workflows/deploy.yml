@@ -1,11 +1,19 @@
 name: Deploy
 
 on:
-  push:
-    # Both names on purpose. This repository's default branch is `master`,
-    # while the workflows were written for `main` — so nothing triggered on a
-    # push and the pipeline had never run once. Listing both means it works now
-    # and keeps working if the branch is ever renamed.
+  # ON GREEN CI, not on push.
+  #
+  # A push trigger deploys whatever was pushed, including a commit whose tests
+  # are still running or have already failed — so staging would routinely be
+  # running code the pipeline was in the middle of rejecting. Waiting for CI
+  # costs a few minutes and means "deployed" implies "verified".
+  #
+  # Both branch names on purpose: this repository's default branch is `master`
+  # while the workflows were written for `main`, which is why nothing triggered
+  # at all until recently. Listing both works now and survives a rename.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main, master]
   workflow_dispatch:
     inputs:
@@ -22,19 +30,29 @@ concurrency:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Staging deploys automatically on green main.
+  # Staging deploys automatically once CI is green on the default branch.
   # ---------------------------------------------------------------------------
   staging:
     name: Deploy to staging
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
+    # A completed CI run is not a passed one: `workflow_run` fires on failure
+    # and cancellation too, so the conclusion has to be checked explicitly or
+    # every red build would deploy itself.
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      || github.event.inputs.environment == 'staging'
     environment:
       name: staging
       url: https://staging.inkloom.art
 
     steps:
+      # The exact commit CI verified. `workflow_run` runs against the default
+      # branch's workflow file, and without this the checkout would take
+      # whatever is newest instead of what was tested.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
@@ -43,12 +61,43 @@ jobs:
       # Migrations run BEFORE the deploy, so the new code never meets an old
       # schema. Every migration must therefore be backward-compatible with the
       # currently-running version — see docs/DEPLOYMENT.md.
+      - name: Required secrets are present
+        run: |
+          missing=""
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID ADMIN_PATH; do
+            eval "value=\$$name"
+            [ -z "$value" ] && missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing — add them under"
+            echo "::error::Settings -> Secrets and variables -> Actions. ADMIN_PATH must match"
+            echo "::error::the ADMIN_PATH secret set on the Worker, or the console is unreachable."
+            exit 1
+          fi
+          echo "All deploy secrets present."
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ADMIN_PATH: ${{ secrets.ADMIN_PATH }}
+
       - name: Apply migrations
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
         run: pnpm db:migrate
 
+      # BOTH variables matter at BUILD time, and neither was set here.
+      #
+      # `react-router build` bakes the environment into the bundle, so
+      # `wrangler deploy --env staging` cannot change it afterwards — without
+      # CLOUDFLARE_ENV the deploy would ship a development build to staging.
+      # And routes.ts reads ADMIN_PATH to decide where to mount the console;
+      # missing, it mounts at /admin while the Worker serves a 404 decoy there,
+      # leaving the console unreachable at every address. routes.ts refuses to
+      # build a deployed environment without it rather than guessing.
       - name: Build
+        env:
+          CLOUDFLARE_ENV: staging
+          ADMIN_PATH: ${{ secrets.ADMIN_PATH }}
         run: pnpm build
 
       - name: Deploy
@@ -110,6 +159,25 @@ jobs:
 
       # Printed for the approving reviewer BEFORE anything is applied, so a
       # destructive migration is seen rather than discovered.
+      - name: Required secrets are present
+        run: |
+          missing=""
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID ADMIN_PATH; do
+            eval "value=\$$name"
+            [ -z "$value" ] && missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing — add them under"
+            echo "::error::Settings -> Secrets and variables -> Actions. ADMIN_PATH must match"
+            echo "::error::the ADMIN_PATH secret set on the Worker, or the console is unreachable."
+            exit 1
+          fi
+          echo "All deploy secrets present."
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ADMIN_PATH: ${{ secrets.ADMIN_PATH }}
+
       - name: Show pending migrations for review
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
@@ -126,7 +194,12 @@ jobs:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
         run: pnpm db:migrate
 
+      # See the note on the staging build: both are build-time, and a deploy
+      # without them is silently wrong rather than loudly broken.
       - name: Build
+        env:
+          CLOUDFLARE_ENV: production
+          ADMIN_PATH: ${{ secrets.ADMIN_PATH }}
         run: pnpm build
 
       - name: Confirm no secrets in the client bundle
