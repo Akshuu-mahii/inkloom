@@ -482,12 +482,34 @@ svg {
   }
 }
 
-/* Motion is already flattened globally under prefers-reduced-motion, which
-   would leave this frozen mid-dash and looking broken. Show the whole figure
-   instead: still a mark, just not a moving one. */
+/* --- The mark forming ------------------------------------------------------
+   The hero's reveal: one sweep along the contour, once, on arrival. `forwards`
+   matters — without it the mask snaps back to nothing at the end and the mark
+   disappears. */
+.infinity-form {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  /* Slow, and evenly paced. An ease-out curve put most of the sweep in the
+     first few hundred milliseconds, which reads as the mark appearing and then
+     hesitating rather than being drawn. */
+  animation: form-infinity 2200ms cubic-bezier(0.6, 0.02, 0.35, 1) 150ms forwards;
+}
+
+@keyframes form-infinity {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  /* Frozen mid-sweep both of these are a fragment of a logo, so they show
+     whole rather than merely stopping. */
   .infinity-trace {
     stroke-dasharray: none;
+    animation: none;
+  }
+  .infinity-form {
+    stroke-dashoffset: 0;
     animation: none;
   }
 }

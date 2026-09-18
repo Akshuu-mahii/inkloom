@@ -138,21 +138,18 @@ export function BusyLabel({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * The mark at display size, drawing itself without end.
+ * The mark at display size, forming itself once as the page arrives.
  *
- * The supplied artwork is a FILLED silhouette — the path traces the outside of
- * the ribbon and both counters — so stroking it draws the mark's contour
- * rather than its centreline. That is the right reading here: this site's
- * language is a specification sheet, and a contour being struck around a form
- * is what a drawing looks like while it is being made.
+ * The figure is a single continuous contour, so a thick stroke travelling that
+ * contour sweeps across the whole ribbon — outer edge, crossing, counters — in
+ * the order the shape is actually drawn. Used as a MASK over the filled mark,
+ * that sweep becomes the mark assembling itself from one end to the other,
+ * rather than a line crawling around a shape that was already there.
  *
- * The figure underneath is the finished mark, held at low opacity so the hero
- * is never empty and never a bare moving line. The travelling dash is the same
- * one the loading state uses, at hero weight: one idea, two sizes.
- *
- * It runs continuously, which is a deliberate exception to this site's rule
- * that motion is triggered rather than ambient — the subject is a loop with no
- * end, and a loop that stops making its own point is the wrong drawing.
+ * It ran continuously before, with an ink line tracing the edge. Two things
+ * were wrong with that: the ink read as a stray outline on a mark that has no
+ * outline, and a permanent animation in the hero competes with the headline
+ * every second the page is open. It plays once, then stops on the mark.
  */
 export function InfinitySpecimen({
   size = 320,
@@ -174,33 +171,34 @@ export function InfinitySpecimen({
       aria-label="The Inkloom mark: a continuous loop with no end"
     >
       <defs>
-        <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={`${id}-fill`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor="#FF5F20" />
           <stop offset="0.52" stopColor="#FE6124" />
           <stop offset="1" stopColor="#FF6425" />
         </linearGradient>
+
+        {/*
+          The reveal. White shows the fill through, black hides it, and the
+          stroke is 96 against a ribbon 78 wide: enough that the sweep covers
+          the form completely, and no wider. At 130 it reached across the
+          figure and revealed whole sections at once, so the mark appeared in
+          jumps rather than forming. `pathLength` normalises the dash figures to percentages, so the
+          timing does not change if the curve is ever retraced.
+        */}
+        <mask id={`${id}-reveal`} maskUnits="userSpaceOnUse" x="0" y="0" width="487" height="262">
+          <path
+            className="infinity-form"
+            d={INFINITY_PATH}
+            fill="none"
+            stroke="#fff"
+            strokeWidth={96}
+            strokeLinecap="round"
+            pathLength={100}
+          />
+        </mask>
       </defs>
 
-      {/* The mark, solid and at full strength — this is the logo, not a
-          backdrop for an effect. */}
-      <path d={INFINITY_PATH} fill={`url(#${id})`} />
-
-      {/* The drawing of it, which never finishes.
-          INK, not paper: the contour runs along the outside of the form, where
-          a paper-coloured line is invisible against the page and only appears
-          where it crosses the fill — so it flickered in and out rather than
-          travelling. Ink reads on both sides of the edge, which is what a
-          drawn rule does. */}
-      <path
-        className="infinity-trace infinity-trace-display"
-        d={INFINITY_PATH}
-        fill="none"
-        stroke="var(--color-ink)"
-        strokeWidth={4}
-        strokeLinecap="round"
-        opacity={0.55}
-        pathLength={100}
-      />
+      <path d={INFINITY_PATH} fill={`url(#${id}-fill)`} mask={`url(#${id}-reveal)`} />
     </svg>
   );
 }

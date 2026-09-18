@@ -181,20 +181,23 @@ test.describe("reduced motion", () => {
     await settled(page);
 
     /*
-     * The mark's contour travels its path forever. Frozen mid-travel it is a
-     * broken-looking fragment of a logo, so reduced motion has to show the
-     * whole figure rather than merely stop the clock — which is what the
-     * global `animation-duration: 0.01ms` override alone would do.
+     * The hero mark is revealed by a mask that sweeps along its contour. Stop
+     * that sweep partway and the logo is not static, it is missing — so
+     * reduced motion has to land it at fully revealed rather than merely stop
+     * the clock, which is all the global `animation-duration: 0.01ms`
+     * override would do.
      */
     const state = await page
-      .locator("svg .infinity-trace")
+      .locator("svg .infinity-form")
       .first()
       .evaluate((el) => {
         const s = getComputedStyle(el);
-        return { name: s.animationName, dash: s.strokeDasharray };
+        return { name: s.animationName, offset: s.strokeDashoffset };
       });
 
-    expect(state.name === "none" || state.dash === "none").toBe(true);
+    // The sweep is a MASK, so an unfinished one does not merely look static —
+    // it leaves most of the mark invisible.
+    expect(state.name === "none" || state.offset === "0px").toBe(true);
     await context.close();
   });
 });

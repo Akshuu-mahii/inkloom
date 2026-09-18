@@ -73,7 +73,12 @@ export function ConstructionScroll({ children }: { children: React.ReactNode }) 
           // The ink last, so the sequence ends on the finished mark rather than
           // on a drawing of one.
           .fromTo(fill, { opacity: 0 }, { opacity: 1, duration: 0.7 }, "<1.1")
-          .to(guides, { opacity: 0.4, duration: 0.5 }, "<0.3");
+          // The drawing goes once the ink is down. Left visible it shows as a
+          // dark hairline around a mark that has no outline — the contour is
+          // 4 wide and centred on the edge, so half of it sits proud of the
+          // fill however carefully the fill is painted over it.
+          .to(stroke, { opacity: 0, duration: 0.45 }, "<0.35")
+          .to(guides, { opacity: 0.4, duration: 0.5 }, "<");
       }, scope);
 
       cleanup = () => context.revert();
