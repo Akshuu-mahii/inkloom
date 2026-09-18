@@ -245,3 +245,57 @@ describe("admin.login.account — the tighter budget for staff addresses", () =>
     expect(await counted("admin.login.account")).toBe(0);
   });
 });
+
+// ===========================================================================
+
+/**
+ * The second door to the same mailbox.
+ *
+ * `/auth/resend-verification` spends `auth.resend_verification.account`, three
+ * an hour. `/auth/signup` with an address that is already registered and still
+ * unverified ALSO re-sends that verification mail — and used to spend nothing,
+ * so the per-account budget could be walked straight around by pointing signups
+ * at a stranger's address instead of resends. Only the signup endpoint's
+ * per-network cap stood in the way, and a network is not a scarce resource.
+ */
+describe("a duplicate signup cannot out-mail the resend budget", () => {
+  const VICTIM = "unverified@example.test";
+
+  async function signupOnly(email: string) {
+    return app.json("/v1/auth/signup", {
+      method: "POST",
+      body: JSON.stringify({ ...USER, email }),
+    });
+  }
+
+  it("spends the account's resend budget", async () => {
+    await signupOnly(VICTIM); // creates the account, unverified
+    const before = await counted("auth.resend_verification.account");
+
+    await signupOnly(VICTIM); // same address again: re-sends the mail
+
+    expect(
+      await counted("auth.resend_verification.account"),
+      "the duplicate-signup path must spend the same budget the resend endpoint does",
+    ).toBeGreaterThan(before);
+  });
+
+  it("stops sending once that budget is spent, without saying so", async () => {
+    await signupOnly(VICTIM);
+    await overrideLimit("auth.resend_verification.account", 1);
+
+    await signupOnly(VICTIM); // spends the single allowed resend
+    app.mail.clear();
+
+    const refused = await signupOnly(VICTIM);
+
+    // The response is deliberately identical: it must not reveal whether the
+    // mail went, for the same reason it does not reveal whether the account
+    // exists.
+    expect(refused.status).toBe(200);
+    expect(
+      app.mail.lastTo(VICTIM),
+      "no further mail may reach the address once the budget is gone",
+    ).toBeUndefined();
+  });
+});

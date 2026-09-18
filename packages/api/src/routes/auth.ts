@@ -89,7 +89,7 @@ const NEUTRAL_EMAIL_RESPONSE = {
  * Either way the attempt is recorded for operators.
  */
 async function refuseDuplicateSignup(c: Context<Env>, email: string): Promise<Response> {
-  const { db, auth, audit, logger } = c.get("services");
+  const { db, auth, audit, limiter, logger } = c.get("services");
 
   logger.info("signup_duplicate", {});
   await defer(
@@ -110,9 +110,34 @@ async function refuseDuplicateSignup(c: Context<Env>, email: string): Promise<Re
   });
 
   if (account && !account.emailVerified) {
-    await auth.api
-      .sendVerificationEmail({ body: { email: account.email } })
-      .catch((error: unknown) => logger.warn("duplicate_signup_resend_failed", { error }));
+    /*
+     * THE SAME PER-ACCOUNT BUDGET THE RESEND ENDPOINT SPENDS.
+     *
+     * This path re-sends a verification email, and it used to do so with no
+     * per-account limit at all — only the signup endpoint's 5-per-hour per
+     * NETWORK cap stood in the way. So anyone could point repeated signups at
+     * a stranger's unverified address and keep mailing them, from as many
+     * networks as they had, while `/auth/resend-verification` refused the
+     * fourth attempt in an hour from anywhere. Two doors to one mailbox, one
+     * of them unlocked.
+     *
+     * Sharing `auth.resend_verification.account` closes it properly: the budget
+     * belongs to the ACCOUNT, so it does not matter which door the request
+     * came through.
+     *
+     * The response is unchanged either way. It must not reveal whether the
+     * mail was actually sent, for the same reason it does not reveal whether
+     * the address exists.
+     */
+    const allowed = await limiter.consume("auth.resend_verification.account", `user:${account.id}`);
+
+    if (allowed.allowed) {
+      await auth.api
+        .sendVerificationEmail({ body: { email: account.email } })
+        .catch((error: unknown) => logger.warn("duplicate_signup_resend_failed", { error }));
+    } else {
+      logger.info("duplicate_signup_resend_throttled", { userId: account.id });
+    }
 
     return ok(c, {
       success: true,
