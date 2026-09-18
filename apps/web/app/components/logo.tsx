@@ -1,20 +1,30 @@
 /**
- * The Inkloom wordmark.
+ * The Inkloom wordmark, from the approved artwork.
  *
- * Set in Jost rather than traced as outlines: Jost is the same geometric
- * construction as the approved mark (perfect-circle bowls, flat-topped arches,
- * a circular tittle), so the letterforms match while the mark stays real text —
- * selectable, searchable, and legible to a screen reader without an alt string.
+ * It used to be set in Jost with a drawn loop standing in for the "oo" — real
+ * text, selectable and searchable, on the theory that Jost's geometry matched
+ * the mark closely enough. It did not: at header size the reconstruction read
+ * as an orange blob rather than the mark, and a wordmark that is nearly right
+ * is worse than one that is plainly someone else's.
  *
- * The "oo" is replaced by the infinity loop, which is the mark's one drawn
- * element. It carries `aria-hidden` and the surrounding text supplies the
- * accessible name, so assistive tech reads "inkloom." and never "inkl-loop-m".
+ * So the artwork itself ships. `alt="Inkloom"` carries the accessible name, and
+ * the two files are the same drawing keyed out of its cream background:
+ *
+ *   logo-wordmark.png       ink letters, orange loop — everywhere
+ *   logo-wordmark-mono.png  entirely ink — for dense or inverted contexts
+ *
+ * The alpha channel was computed per pixel rather than colour-keyed, so the
+ * anti-aliased edges survive against any background instead of fringing cream.
+ *
+ * The CONSTRUCTION drawings below are unaffected and stay vector: they are
+ * about how a mark is built, they animate, and they are the subject of the
+ * homepage and the how-it-works page rather than the brand signature.
  */
 
 export interface LogoProps {
   /** Height of the wordmark in pixels. */
   size?: number;
-  /** Draw the loop on mount. Used once, on the homepage hero. */
+  /** Accepted and ignored: the image does not draw itself. */
   animate?: boolean;
   className?: string;
   /** Render the loop in ink instead of orange — for dark or dense contexts. */
@@ -22,93 +32,34 @@ export interface LogoProps {
 }
 
 /**
- * How tall the loop is, as a multiple of the wordmark's font size.
- *
- * The loop stands in for "oo", so it is sized to the x-height, not to the font
- * size. In the artwork the letters' x-height is 438px and the loop is 450px —
- * a 2.7% overshoot, exactly what a round glyph gets so it does not read as
- * short beside flat-topped ones.
- *
- * Jost's x-height at weight 700 measures 0.460em — taken from the font itself
- * via canvas metrics, not from the 0.535 the specimen sheet implies, which was
- * wrong by 16%. So:
- *
- *     0.460 x 1.027 = 0.472
+ * `size` is now the wordmark's HEIGHT, which is what it should always have
+ * meant. It used to be the lockup's font size, from which the visible mark
+ * came out about a third smaller — so the same numbers rendered a wordmark
+ * that sat noticeably below the weight of the navigation beside it.
  */
-const LOOP_HEIGHT_EM = 0.516;
+const WORDMARK_ASPECT = 790 / 160;
 
-export function Logo({ size = 28, animate = false, className, monochrome = false }: LogoProps) {
-  const loopColor = monochrome ? "currentColor" : "var(--color-loop)";
+export function Logo({ size = 28, className, monochrome = false }: LogoProps) {
+  const height = size;
 
   return (
-    <span
+    <img
+      src={monochrome ? "/logo-wordmark-mono.png" : "/logo-wordmark.png"}
+      alt="Inkloom"
       className={className}
-      style={{
-        display: "inline-flex",
-        alignItems: "baseline",
-        gap: 0,
-        fontFamily: "var(--font-display)",
-        /* The artwork's stems are 137px against a 438px x-height — a ratio of
-           0.31, which is as heavy as the variable face goes. */
-        fontWeight: 700,
-        fontSize: size,
-        lineHeight: 1,
-        letterSpacing: "-0.042em",
-        color: "currentColor",
-      }}
-    >
-      {/* The accessible name for the whole lockup. */}
-      <span className="sr-only">Inkloom</span>
-
-      <span aria-hidden="true" style={{ display: "inline-flex", alignItems: "baseline" }}>
-        inkl
-        <InfinityLoop size={size} color={loopColor} animate={animate} />m
-        {/*
-          The full stop is INK, not orange.
-
-          Sampling the artwork settles it: there is not one orange pixel to the
-          right of the loop. Orange belongs to the loop alone, which is what
-          makes it read as the mark rather than as decoration.
-        */}
-        <span>.</span>
-      </span>
-    </span>
-  );
-}
-
-/**
- * Two fused circles — the "oo" ligature from the wordmark.
- *
- * Drawn as a single continuous path so it can be animated as one stroke: the
- * loop is literally constructed in front of the viewer, which is the idea the
- * whole homepage is built around.
- */
-function InfinityLoop({ size, color, animate }: { size: number; color: string; animate: boolean }) {
-  return (
-    <svg
-      width={size * LOOP_HEIGHT_EM * LOOP_ASPECT}
-      height={size * LOOP_HEIGHT_EM}
-      viewBox={LOOP_VIEWBOX}
-      aria-hidden="true"
-      focusable="false"
-      /*
-        Sat on the baseline like the letters it replaces, then dropped by the
-        overshoot so its underside lines up with theirs.
-
-        Nudged with `top`, not with a negative bottom margin: the parent is a
-        flex container, and a flex item's baseline alignment ignores the margin,
-        so the margin version moved nothing at all. Relative offset shifts the
-        paint without disturbing the layout either way.
-      */
-      style={{
-        display: "inline-block",
-        position: "relative",
-        top: "0.039em",
-        marginInline: "-0.012em",
-      }}
-    >
-      <LoopRings color={color} animate={animate} />
-    </svg>
+      width={Math.round(height * WORDMARK_ASPECT)}
+      height={height}
+      /* Explicit dimensions AND a height in the style: the attributes reserve
+         the space before the image arrives, which keeps the header from
+         reflowing, and the style keeps it exact if a stylesheet sets a
+         max-width on images — which this one does. */
+      style={{ height, width: "auto", display: "block" }}
+      decoding="async"
+      /* The wordmark is in the header of every page, so it is never lazy: a
+         deferred logo is a visibly empty header on the first paint. */
+      loading="eager"
+      draggable={false}
+    />
   );
 }
 
