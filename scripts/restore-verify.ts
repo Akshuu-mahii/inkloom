@@ -263,24 +263,40 @@ async function verifyRestored(restored: Database, live: Database): Promise<void>
   check("the generated normalized_email column survived", generated?.is_generated === "ALWAYS");
 
   /*
-   * Compare against live only as CONTEXT, never as a pass/fail.
+   * Compare against live only as CONTEXT, never as a pass/fail — and never at
+   * the cost of the run.
    *
    * The backup is older than the live database by design, so a difference is
    * expected and is precisely the data a restore would lose. Reporting it as a
    * failure would make every correct run red.
+   *
+   * It is also OPTIONAL, which the first CI run proved the hard way. On a
+   * runner `DATABASE_URL` points at the scratch Postgres, not at staging, so
+   * this query hit a database with no `users` table and threw — failing a
+   * restore test in which all thirteen real checks had passed. A comment
+   * saying "context, not a verdict" does not make a query safe; catching it
+   * does.
    */
-  const now = (
-    await live.execute<Record<string, string>>(
-      sql`SELECT (SELECT COUNT(*)::text FROM users) AS users,
-                 (SELECT COUNT(*)::text FROM credit_ledger) AS ledger`,
-    )
-  ).rows[0]!;
-  const lostUsers = Number(now.users) - Number(shape.users);
-  const lostLedger = Number(now.ledger) - Number(shape.ledger);
-  console.log(
-    `  ..    restoring this backup would lose ${lostUsers} user(s) and ` +
-      `${lostLedger} ledger entr(ies) written since it was taken`,
-  );
+  try {
+    const now = (
+      await live.execute<Record<string, string>>(
+        sql`SELECT (SELECT COUNT(*)::text FROM users) AS users,
+                   (SELECT COUNT(*)::text FROM credit_ledger) AS ledger`,
+      )
+    ).rows[0]!;
+    const lostUsers = Number(now.users) - Number(shape.users);
+    const lostLedger = Number(now.ledger) - Number(shape.ledger);
+    console.log(
+      `  ..    restoring this backup would lose ${lostUsers} user(s) and ` +
+        `${lostLedger} ledger entr(ies) written since it was taken`,
+    );
+  } catch {
+    console.log(
+      "  ..    no live database to compare against (expected on CI, where the\n" +
+        "        comparison target is the scratch server) — skipping the\n" +
+        "        how-much-would-be-lost figure. Not a failure.",
+    );
+  }
 }
 
 void main();
