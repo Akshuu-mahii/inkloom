@@ -2,7 +2,11 @@ name: Deploy
 
 on:
   push:
-    branches: [main]
+    # Both names on purpose. This repository's default branch is `master`,
+    # while the workflows were written for `main` — so nothing triggered on a
+    # push and the pipeline had never run once. Listing both means it works now
+    # and keeps working if the branch is ever renamed.
+    branches: [main, master]
   workflow_dispatch:
     inputs:
       environment:
