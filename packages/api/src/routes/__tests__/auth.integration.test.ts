@@ -91,17 +91,23 @@ describe("signup", () => {
     expect(Number(after.rows[0]!.count)).toBe(1);
   });
 
-  it("does NOT reveal that an email is already registered", async () => {
-    const first = await signup();
-    app.mail.clear();
+  /*
+   * This used to assert the OPPOSITE — that a duplicate signup was
+   * indistinguishable from a fresh one. That was changed deliberately, not
+   * abandoned: see the note on `refuseDuplicateSignup`. A signup form cannot
+   * meaningfully hide whether an address is taken, and the neutral version left
+   * people waiting for a confirmation email that was never sent.
+   *
+   * What must NOT change is that no second account appears, and that login and
+   * password reset stay neutral. Both are asserted elsewhere in this file.
+   */
+  it("tells the caller the address is taken, and creates no second account", async () => {
+    await signupAndVerify();
     const second = await signup();
 
-    // Identical status and identical body — the only safe answer.
-    expect(second.status).toBe(first.status);
-    expect(second.data).toEqual(first.data);
-    expect(JSON.stringify(second.data)).not.toMatch(/exist|already|taken|registered/i);
+    expect(second.status).toBe(409);
+    expect(JSON.stringify(second.error)).toMatch(/already exists/i);
 
-    // And no second account was created.
     const count = await app.db.db.execute<{ count: string }>(
       sql`SELECT COUNT(*)::text AS count FROM users`,
     );
@@ -543,6 +549,48 @@ describe("password reset", () => {
     expect(me.status).toBe(401);
   });
 
+  /*
+   * The per-email reset budget, which can ONLY be verified here.
+   *
+   * On a deployed environment Turnstile is checked before this limiter and
+   * fails closed, so a script with no token is refused at 403 and the bucket is
+   * never reached — by design, and the right order: the cheapest gate first.
+   * The consequence is that live acceptance cannot exercise it without either
+   * solving a challenge or disabling one, and disabling a control to observe
+   * another is not a trade worth making. This suite runs with Turnstile off
+   * legitimately, so it is the correct place to hold this guarantee.
+   */
+  it("limits reset requests per email address, not only per network", async () => {
+    await signupAndVerify();
+
+    const request = () =>
+      app.json("/v1/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({ email: VALID.email }),
+      });
+
+    // The policy allows 3 an hour per address.
+    for (let i = 0; i < 3; i += 1) expect((await request()).status).toBe(200);
+
+    const counted = await app.db.db.execute<{ total: string }>(
+      sql`SELECT COALESCE(SUM(count),0)::text AS total FROM rate_limit_events
+           WHERE bucket = 'auth.forgot_password.email'
+             AND subject = ${"email:" + VALID.email}`,
+    );
+    expect(Number(counted.rows[0]!.total), "each request must be charged").toBeGreaterThanOrEqual(3);
+
+    /*
+     * Past the budget the response stays NEUTRAL rather than becoming a 429.
+     * That is deliberate: a rate-limit response on an address that exists,
+     * where an unknown address still returns 200, would itself be an
+     * enumeration oracle. The limit shows up as mail not being sent.
+     */
+    app.mail.clear();
+    const beyond = await request();
+    expect(beyond.status, "the response must not reveal the limit").toBe(200);
+    expect(app.mail.lastTo(VALID.email), "but no further mail is sent").toBeUndefined();
+  });
+
   it("emails a notification after the password changes", async () => {
     await signupAndVerify();
     app.mail.clear();
@@ -788,5 +836,239 @@ describe("an account with no password", () => {
 
     // The original password still works.
     expect((await login()).status).toBe(200);
+  });
+});
+
+// ===========================================================================
+
+describe("two-factor enrolment", () => {
+  /*
+   * The bug: `enableTwoFactor` INSERTs a row every time it is called, and the
+   * schema indexes two_factor.user_id without a unique constraint. Someone who
+   * opened the setup form, walked away, and came back had two unverified rows.
+   * `verifyTOTP` looks up "the" row for the user and got an arbitrary one —
+   * usually not the secret behind the QR code just scanned — so enrolment was
+   * permanently unverifiable and every correct code came back "not valid".
+   *
+   * Found on staging, where the account could not turn 2FA on at all, which in
+   * turn made the admin console unreachable: the middleware requires 2FA for
+   * staff, with no way around it.
+   */
+  async function startSetup(cookies: string[]) {
+    return app.json("/v1/auth/two-factor/enable", {
+      method: "POST",
+      cookies,
+      body: JSON.stringify({ currentPassword: VALID.password }),
+    });
+  }
+
+  const rows = async () => {
+    const result = await app.db.db.execute<{ id: string; verified: boolean }>(
+      sql`SELECT id, verified FROM two_factor ORDER BY id`,
+    );
+    return result.rows;
+  };
+
+  const totpUri = (result: { data?: unknown }) =>
+    (result.data as { totpURI?: string } | undefined)?.totpURI;
+
+  it("leaves exactly one unverified row when setup is restarted", async () => {
+    await signupAndVerify();
+    const { cookies } = await login();
+
+    const first = await startSetup(cookies);
+    expect(first.status).toBe(200);
+    expect(await rows()).toHaveLength(1);
+
+    const second = await startSetup(cookies);
+    expect(second.status).toBe(200);
+
+    // The point: restarting replaces the abandoned enrolment rather than
+    // accumulating a second one alongside it.
+    const after = await rows();
+    expect(after).toHaveLength(1);
+    expect(after[0]!.verified).toBe(false);
+  });
+
+  it("issues a fresh secret on restart, so the newest QR code is the live one", async () => {
+    await signupAndVerify();
+    const { cookies } = await login();
+
+    const first = await startSetup(cookies);
+    const second = await startSetup(cookies);
+
+    expect(totpUri(first)).toBeDefined();
+    expect(totpUri(second)).toBeDefined();
+    expect(totpUri(second)).not.toBe(totpUri(first));
+  });
+
+  it("still refuses a wrong password, so the reset cannot be used unauthenticated", async () => {
+    await signupAndVerify();
+    const { cookies } = await login();
+
+    const result = await app.json("/v1/auth/two-factor/enable", {
+      method: "POST",
+      cookies,
+      body: JSON.stringify({ currentPassword: "not-the-password" }),
+    });
+
+    expect(result.status).toBe(401);
+    // And nothing was created or destroyed on the way to that refusal.
+    expect(await rows()).toHaveLength(0);
+  });
+
+  /*
+   * The whole enrolment, with a REAL code.
+   *
+   * Everything else here asserts refusals, which is the easy half — a handler
+   * that always failed would pass all of them. This one derives the actual TOTP
+   * from the secret in the URI the server just handed out, using the same
+   * primitive Better Auth verifies with, and requires that it be accepted and
+   * that the account come out of it genuinely protected.
+   *
+   * Written while 2FA could not be completed on staging, to answer one question
+   * the deployed environment could not: is the code path itself correct?
+   */
+  it("completes enrolment with a genuine code and flips the account to protected", async () => {
+    const { createOTP } = await import("@better-auth/utils/otp");
+    const { base32 } = await import("@better-auth/utils/base32");
+
+    await signupAndVerify();
+    const { cookies } = await login();
+
+    const started = await startSetup(cookies);
+    const uri = totpUri(started);
+    expect(uri).toBeDefined();
+
+    /*
+     * The URI carries base32(raw secret), which is what an authenticator app
+     * decodes to get its HMAC key. Better Auth computes the code over the RAW
+     * secret string, and those are the same bytes. Passing the base32 form
+     * straight into createOTP hashes the wrong key and produces a code that is
+     * wrong in a completely convincing way — six digits that change every
+     * thirty seconds and are never accepted. Worth stating, because it is
+     * indistinguishable from a broken server.
+     */
+    const encoded = new URL(uri!).searchParams.get("secret");
+    expect(encoded).toBeTruthy();
+    const secret = new TextDecoder().decode(base32.decode(encoded!));
+
+    const code = await createOTP(secret).totp();
+    const confirmed = await app.json("/v1/auth/two-factor/confirm", {
+      method: "POST",
+      cookies,
+      body: JSON.stringify({ code }),
+    });
+
+    expect(confirmed.status).toBe(200);
+
+    const after = await rows();
+    expect(after).toHaveLength(1);
+    expect(after[0]!.verified).toBe(true);
+
+    const flag = await app.db.db.execute<{ two_factor_enabled: boolean }>(
+      sql`SELECT two_factor_enabled FROM users LIMIT 1`,
+    );
+    expect(flag.rows[0]!.two_factor_enabled).toBe(true);
+  });
+
+  it("rejects an invalid confirmation code without enabling anything", async () => {
+    await signupAndVerify();
+    const { cookies } = await login();
+    await startSetup(cookies);
+
+    const result = await app.json("/v1/auth/two-factor/confirm", {
+      method: "POST",
+      cookies,
+      body: JSON.stringify({ code: "000000" }),
+    });
+
+    expect(result.status).toBe(401);
+    const after = await rows();
+    expect(after).toHaveLength(1);
+    expect(after[0]!.verified).toBe(false);
+  });
+});
+
+
+// ===========================================================================
+
+describe("signing up with an address that already has an account", () => {
+  /*
+   * This flow DELIBERATELY reveals that the address is registered, unlike login
+   * and password reset which stay neutral. A signup form cannot really hide it —
+   * the address either becomes an account or it does not — and the neutral
+   * version left people waiting for a confirmation email that was never coming.
+   */
+
+  it("says plainly that the account exists, and does not pretend to send mail", async () => {
+    await signupAndVerify();
+    app.mail.clear();
+
+    const result = await signup();
+
+    expect(result.status, "409 Conflict, not a cheerful 200").toBe(409);
+    expect(result.error?.code).toBe("CONFLICT");
+    expect(JSON.stringify(result.error)).toMatch(/already exists/i);
+    expect(app.mail.sent, "no email of any kind for a verified duplicate").toHaveLength(0);
+  });
+
+  it("resends the link instead when the existing account is UNVERIFIED", async () => {
+    // Registered but never confirmed: telling them to sign in is a dead end,
+    // because sign-in refuses an unverified account.
+    await signup();
+    app.mail.clear();
+
+    const result = await signup();
+
+    expect(result.status, "not an error — they can still finish").toBe(200);
+    expect(JSON.stringify(result.data)).toMatch(/not confirmed/i);
+    expect(app.mail.lastTo(VALID.email)?.template).toBe("verify_email");
+  });
+
+  it("still sends a normal verification email to a brand-new address", async () => {
+    app.mail.clear();
+
+    const result = await signup({ email: "stranger@example.test" });
+
+    expect(result.status).toBe(200);
+    expect(app.mail.lastTo("stranger@example.test")?.template).toBe("verify_email");
+  });
+
+  it("records the duplicate for operators", async () => {
+    await signupAndVerify();
+    const before = await app.db.db.execute<{ n: string }>(
+      sql`SELECT COUNT(*) AS n FROM security_events WHERE metadata->>'flow' = 'signup_duplicate'`,
+    );
+
+    await signup();
+
+    const after = await app.db.db.execute<{ n: string }>(
+      sql`SELECT COUNT(*) AS n FROM security_events WHERE metadata->>'flow' = 'signup_duplicate'`,
+    );
+    expect(Number(after.rows[0]!.n)).toBe(Number(before.rows[0]!.n) + 1);
+  });
+
+  it("creates no second account and no second wallet", async () => {
+    await signupAndVerify();
+
+    await signup();
+
+    const counts = await app.db.db.execute<{ users: string; wallets: string }>(
+      sql`SELECT (SELECT COUNT(*) FROM users) AS users,
+                 (SELECT COUNT(*) FROM credit_wallets) AS wallets`,
+    );
+    expect(Number(counts.rows[0]!.users)).toBe(1);
+    expect(Number(counts.rows[0]!.wallets)).toBeLessThanOrEqual(1);
+  });
+
+  it("keeps LOGIN neutral — enumeration protection stays where it works", async () => {
+    await signupAndVerify();
+
+    const known = await login(VALID.email, "definitely-the-wrong-password");
+    const unknown = await login("no-such-person@example.test", "definitely-the-wrong-password");
+
+    expect(known.status).toBe(unknown.status);
+    expect(known.error?.code).toBe(unknown.error?.code);
   });
 });

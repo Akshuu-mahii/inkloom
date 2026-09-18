@@ -40,6 +40,19 @@ export const userRole = pgTable(
       .references(() => role.id, { onDelete: "restrict" }),
     /** Null for the bootstrap super-admin created by the one-time CLI. */
     grantedBy: text("granted_by").references(() => user.id, { onDelete: "set null" }),
+    /**
+     * NAMED FOR ITS MEANING, STORED AS `created_at`.
+     *
+     * Correct through the query builder, which resolves the alias. A TRAP in raw
+     * SQL: writing this property's snake_case spelling names a column that was
+     * never created, and Postgres answers SQLSTATE 42703 at runtime rather than
+     * anything at build time. The redemption replay path did exactly that and
+     * returned a 500 on every duplicate redemption.
+     *
+     * `packages/db/src/__tests__/column-aliases.test.ts` derives these aliases
+     * from this file and fails the build if any raw SQL reaches for the name
+     * that does not exist.
+     */
     grantedAt: createdAt(),
     /** Required for every grant made through the admin API. */
     reason: text("reason"),

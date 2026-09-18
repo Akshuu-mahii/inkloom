@@ -139,6 +139,19 @@ export const dataExportRequest = pgTable(
      */
     payload: jsonb("payload").$type<Record<string, unknown>>(),
     error: text("error"),
+    /**
+     * NAMED FOR ITS MEANING, STORED AS `created_at`.
+     *
+     * Correct through the query builder, which resolves the alias. A TRAP in raw
+     * SQL: writing this property's snake_case spelling names a column that was
+     * never created, and Postgres answers SQLSTATE 42703 at runtime rather than
+     * anything at build time. The redemption replay path did exactly that and
+     * returned a 500 on every duplicate redemption.
+     *
+     * `packages/db/src/__tests__/column-aliases.test.ts` derives these aliases
+     * from this file and fails the build if any raw SQL reaches for the name
+     * that does not exist.
+     */
     requestedAt: createdAt(),
     completedAt: tsCol("completed_at"),
     /** Exports self-destruct; the row is kept, the payload is nulled. */

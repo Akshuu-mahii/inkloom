@@ -8,8 +8,9 @@
     "preview": "npm run build && vite preview",
     "typecheck": "react-router typegen && tsc --noEmit",
     "cf-typegen": "wrangler types",
-    "deploy:staging": "npm run build && wrangler deploy --env staging",
-    "deploy:production": "npm run build && wrangler deploy --env production"
+    "deploy:staging": "CLOUDFLARE_ENV=staging npm run build && CLOUDFLARE_ENV=staging wrangler deploy",
+    "deploy:production": "CLOUDFLARE_ENV=production npm run build && CLOUDFLARE_ENV=production wrangler deploy",
+    "deploy:preview": "CLOUDFLARE_ENV=staging npm run build && CLOUDFLARE_ENV=staging wrangler versions upload"
   },
   "dependencies": {
     "@inkloom/api": "workspace:*",

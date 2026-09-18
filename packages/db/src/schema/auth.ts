@@ -189,7 +189,21 @@ export const twoFactor = pgTable(
     backupCodes: text("backup_codes").notNull(),
     /** Set once the user proves they can generate a valid TOTP code. */
     verified: boolean("verified").notNull().default(false),
-    /** Drives Better Auth's own throttling of TOTP brute-force attempts. */
+    /*
+     * Account-level brute-force budget for the second factor.
+     *
+     * WRITTEN BY BETTER AUTH, NOT BY THIS CODEBASE. The two-factor plugin
+     * increments `failed_verification_count` atomically on each failed
+     * verification, sets `locked_until` once the budget is spent, and clears
+     * both on success — all through the Drizzle adapter, so no call site in
+     * this repository ever touches these columns.
+     *
+     * Stated this plainly because grepping for writes here finds none, and a
+     * staging audit concluded from that silence that the columns were dead and
+     * TOTP had no per-account brute-force protection. Neither was true. The
+     * policy is configured explicitly in core/auth/auth.ts and proved against
+     * real column values in two-factor-lockout.integration.test.ts.
+     */
     failedVerificationCount: integer("failed_verification_count").notNull().default(0),
     lockedUntil: tsCol("locked_until"),
   },

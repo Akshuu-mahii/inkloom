@@ -581,10 +581,21 @@ describe("session integrity", () => {
   it("rejects a forged session cookie", async () => {
     await signedInCookies("forge@example.test");
 
+    /*
+     * Every name the cookie can have, including the DEPLOYED one.
+     *
+     * Better Auth prepends `__Secure-` to the configured name whenever secure
+     * cookies are on, so the real name in production is
+     * `__Secure-__Host-inkloom_session` — not the `__Host-` one this file used
+     * to forge. Testing only the local name would leave the deployed shape
+     * unexercised, which is the half that actually faces an attacker.
+     */
     for (const forged of [
       "inkloom_session=forged-value",
       "inkloom_session=",
       "__Host-inkloom_session=forged",
+      "__Secure-__Host-inkloom_session=forged",
+      "__Secure-inkloom_session=forged",
       "inkloom_session=' OR '1'='1",
     ]) {
       const result = await app.json("/v1/me", { cookies: [forged] });

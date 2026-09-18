@@ -44,15 +44,23 @@ export default function AdminInfrastructure({ loaderData }: Route.ComponentProps
     );
   }
 
-  const reading = (provider: string, metric: string) =>
+  const _reading = (provider: string, metric: string) =>
     insights.providers.find((p) => p.provider === provider && p.metric === metric);
 
-  const storage = reading("database", "storage_bytes");
-  const connections = reading("database", "connections");
-  const storageBytes = Number(storage?.value ?? 0);
-
-  const latest = insights.daily.at(-1);
-  const users = latest?.users_total ?? 0;
+  /*
+   * "Right now" must mean right now.
+   *
+   * These three came from the nightly roll-up, so the console read "0 Users" for
+   * a day after the first person signed up — under a heading promising the
+   * present, beside a storage figure that was equally stale but looked
+   * plausible. The API measures all three at request time instead.
+   *
+   * `provider_metrics` is still read below, because the daily readings are what
+   * the growth trend is built from; they just do not belong in this card.
+   */
+  const storageBytes = insights.now.databaseBytes;
+  const connectionCount = insights.now.connections;
+  const users = insights.now.usersTotal;
 
   /*
    * Storage growth from the roll-up's own history.
@@ -86,7 +94,7 @@ export default function AdminInfrastructure({ loaderData }: Route.ComponentProps
         <h2 className="admin-h2">Right now</h2>
         <div className="stat-grid">
           <Stat value={formatBytes(storageBytes)} label="Database size" />
-          <Stat value={connections?.value ?? "—"} label="Connections" />
+          <Stat value={connectionCount.toLocaleString("en-GB")} label="Connections" />
           <Stat value={users.toLocaleString("en-GB")} label="Users" />
           <Stat
             value={users > 0 ? formatBytes(storageBytes / users) : "—"}

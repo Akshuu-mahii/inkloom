@@ -13,6 +13,7 @@ import type pg from "pg";
 
 const TABLES = [
   "analytics_events",
+  "job_runs",
   "rate_limit_events",
   "abuse_flags",
   "security_events",

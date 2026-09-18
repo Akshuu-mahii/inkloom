@@ -22,6 +22,15 @@ import { apiError, errorResponse } from "../lib/response";
 import type { Env, Principal } from "../context";
 
 /**
+ * How stale a session's activity timestamp may get before it is rewritten.
+ *
+ * Sized against the policy it feeds, not against precision for its own sake:
+ * the shortest idle window in the system is 30 minutes (admins), so a minute of
+ * granularity is 1/30th of the tightest decision it informs.
+ */
+const ACTIVITY_WRITE_INTERVAL_MS = 60_000;
+
+/**
  * Resolve the current principal, if any.
  *
  * Non-blocking: it populates `principal` when a valid session exists and does
@@ -105,12 +114,34 @@ export const loadPrincipal: MiddlewareHandler<Env> = async (c, next) => {
     return next();
   }
 
-  // Touch last activity so idle expiry tracks real use. Deliberately not
-  // awaited on the hot path beyond the write itself.
-  await db
-    .update(sessionTable)
-    .set({ lastActiveAt: new Date() })
-    .where(eq(sessionTable.id, found.sessionId));
+  /*
+   * Touch last activity — but not on every single request.
+   *
+   * This was an unconditional UPDATE on the hot path, so EVERY authenticated
+   * request performed a blocking row write before it did any of its own work.
+   * One person clicking around costs a handful; a thousand people browsing at
+   * once costs a thousand writes a second, each holding a pooled connection for
+   * a full round trip, against a Hyperdrive origin limit of 20. The database
+   * spends its capacity recording that people are looking at it.
+   *
+   * The value only exists to drive idle expiry, and the policy measures that in
+   * MINUTES — 30 for admins, 7 days for everyone else. Recording it to the
+   * nearest minute is indistinguishable from recording it to the nearest
+   * millisecond for that purpose, and removes ~99% of the writes for an active
+   * session.
+   *
+   * Deliberately still awaited when it does run: a fire-and-forget write can be
+   * cut off when the isolate is torn down, and a session whose activity silently
+   * stopped being recorded would expire under an active user.
+   */
+  const now = Date.now();
+  const lastTouch = found.lastActiveAt?.getTime() ?? 0;
+  if (now - lastTouch >= ACTIVITY_WRITE_INTERVAL_MS) {
+    await db
+      .update(sessionTable)
+      .set({ lastActiveAt: new Date(now) })
+      .where(eq(sessionTable.id, found.sessionId));
+  }
 
   const principal: Principal = {
     userId: found.userId,
@@ -211,6 +242,13 @@ export function requirePermission(permission: Permission): MiddlewareHandler<Env
           path: new URL(c.req.url).pathname,
         },
       });
+      c.get("services").logger.warn("admin_gate_denied", {
+        gate: "owner",
+        permission,
+        userId: principal.userId,
+        role: principal.role,
+        path: new URL(c.req.url).pathname,
+      });
       return errorResponse(c, apiError("FORBIDDEN"));
     }
 
@@ -229,35 +267,72 @@ export function requirePermission(permission: Permission): MiddlewareHandler<Env
           path: new URL(c.req.url).pathname,
         },
       });
+      c.get("services").logger.warn("admin_gate_denied", {
+        gate: "permission",
+        permission,
+        userId: principal.userId,
+        role: principal.role,
+        path: new URL(c.req.url).pathname,
+      });
       // A plain 403 — not a 404 — because the caller IS authenticated and
       // telling them they lack permission leaks nothing they don't know.
       return errorResponse(c, apiError("FORBIDDEN"));
     }
 
+    /*
+     * Say WHICH gate refused — in the log, never in the response.
+     *
+     * Six independent checks stand between a request and an admin endpoint, and
+     * from outside they are deliberately indistinguishable: that opacity is the
+     * point. It was equally opaque to the operator, though, and debugging "the
+     * console will not open" meant guessing at role, owner email, 2FA, email
+     * verification and recent-auth one at a time against a production database.
+     * The response is unchanged; only the operator gains anything here.
+     */
+    const { logger } = c.get("services");
+    const deny = (gate: string, response: Response) => {
+      logger.warn("admin_gate_denied", {
+        gate,
+        permission,
+        userId: principal.userId,
+        role: principal.role,
+        twoFactorEnabled: principal.twoFactorEnabled,
+        emailVerified: principal.emailVerified,
+        path: new URL(c.req.url).pathname,
+      });
+      return response;
+    };
+
     // Mandatory 2FA for admins. Checked here rather than at login so that an
     // account PROMOTED to an admin role is also covered immediately.
     if (principal.role !== "user" && !principal.twoFactorEnabled) {
-      return errorResponse(
-        c,
-        apiError("TWO_FACTOR_REQUIRED", {
-          details: {
-            reason: "Two-factor authentication is required for staff accounts.",
-            enrolPath: "/app/security",
-          },
-        }),
+      return deny(
+        "two_factor",
+        errorResponse(
+          c,
+          apiError("TWO_FACTOR_REQUIRED", {
+            details: {
+              reason: "Two-factor authentication is required for staff accounts.",
+              enrolPath: "/app/security",
+            },
+          }),
+        ),
       );
     }
 
     if (!principal.emailVerified) {
-      return errorResponse(c, apiError("EMAIL_NOT_VERIFIED"));
+      return deny("email_verified", errorResponse(c, apiError("EMAIL_NOT_VERIFIED")));
     }
 
     if (requiresReauth(permission) && !isRecentlyAuthenticated(principal.lastAuthenticatedAt)) {
-      return errorResponse(
-        c,
-        apiError("REAUTH_REQUIRED", {
-          details: { reason: "Confirm your password to perform this action." },
-        }),
+      return deny(
+        "recent_auth",
+        errorResponse(
+          c,
+          apiError("REAUTH_REQUIRED", {
+            details: { reason: "Confirm your password to perform this action." },
+          }),
+        ),
       );
     }
 

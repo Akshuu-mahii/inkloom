@@ -167,8 +167,20 @@ export function Turnstile({
           sitekey: siteKey,
           action,
           theme: "light",
-          // Managed mode: most people never see a challenge at all.
-          appearance: "interaction-only",
+          /*
+           * Always visible, not "interaction-only".
+           *
+           * Interaction-only renders NOTHING unless Cloudflare decides a
+           * challenge is warranted, which is quieter but leaves the person with
+           * no idea whether anything is happening — and, when the check is
+           * genuinely slow, no idea why the submit button is disabled. The
+           * widget's own "Success! You are human" tick is the feedback, and it
+           * costs one small box above the button.
+           *
+           * It also makes a broken check obvious to US rather than silent: an
+           * empty space is indistinguishable from a widget that never rendered.
+           */
+          appearance: "always",
           callback: () => {
             settled = true;
             report("verified");

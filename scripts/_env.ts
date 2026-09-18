@@ -35,4 +35,26 @@ export function looksRemote(connectionString: string): boolean {
   return !["localhost", "127.0.0.1", "::1", "postgres", "host.docker.internal"].includes(host);
 }
 
+/**
+ * Rewrite a connection URL for use INSIDE the Postgres container.
+ *
+ * Scripts that shell out to `pg_dump` or `psql` run them in the local Postgres
+ * container, because that is where a matching client version lives. Inside it,
+ * a URL like `127.0.0.1:5433` means the container itself — and Postgres listens
+ * on 5432 there, not on the port Docker published. Without this the tools fail
+ * with "connection refused" against their own loopback, which reads like the
+ * database being down rather than an address translation.
+ *
+ * Remote hosts (Neon) are reachable from the container directly and pass
+ * through untouched.
+ */
+export function insideContainer(url: string): string {
+  const u = new URL(url);
+  if (["127.0.0.1", "localhost", "::1"].includes(u.hostname)) {
+    u.hostname = "localhost";
+    u.port = "5432";
+  }
+  return u.toString();
+}
+
 export { root as repoRoot };

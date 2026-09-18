@@ -57,6 +57,13 @@
       "when": 1789306187883,
       "tag": "0007_telemetry_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789392587883,
+      "tag": "0008_job_runs",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
-import { Form, useActionData, useNavigation, useOutletContext } from "react-router";
+import { Form, redirect, useActionData, useNavigation, useOutletContext } from "react-router";
+import { useState } from "react";
 import type { Route } from "./+types/profile";
-import { call, fieldErrors, type Me } from "../../lib/api";
+import { call, fieldErrors, withCookies, type Me } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
 import { Field, Notice, PageHeader } from "../../components/ui";
 
@@ -51,6 +52,29 @@ export async function action({ request }: Route.ActionArgs) {
     return result.error
       ? { intent, error: result.error.message, fields: {} as Record<string, string>, ok: false }
       : { intent, error: null, fields: {} as Record<string, string>, ok: true };
+  }
+
+  /*
+   * Erasing the account.
+   *
+   * On success the session is already gone — the API deletes every session row
+   * and clears the cookie — so this redirects out of the dashboard rather than
+   * re-rendering a page whose loader would now 401.
+   */
+  if (intent === "erase") {
+    const result = await call("/me", {
+      method: "DELETE",
+      request,
+      body: {
+        currentPassword: String(form.get("currentPassword") ?? ""),
+        understood: form.get("understood") !== null,
+      },
+    });
+
+    if (result.error) {
+      return { intent, error: result.error.message, fields: fieldErrors(result.error), ok: false };
+    }
+    return redirect("/?erased=1", { headers: withCookies(result) });
   }
 
   return { intent, error: "Unknown action.", fields: {} as Record<string, string>, ok: false };
@@ -222,8 +246,102 @@ export default function Profile() {
             </button>
           </Form>
         </section>
+
+        {/* --- Erasure ------------------------------------------------------ */}
+        <EraseAccount busy={busy} error={failed("erase")} fields={actionData?.fields} />
       </div>
     </>
+  );
+}
+
+/**
+ * Erasing the account, behind a deliberate second step.
+ *
+ * The confirmation is not decoration. This is the only action in the product
+ * that cannot be undone, and it sits on the same page as "export my data" —
+ * two buttons a tired person could confuse. The password field and the explicit
+ * checkbox are what the API requires; the collapsed state is what stops the
+ * form being one stray click away at all times.
+ *
+ * The copy says exactly what survives. Telling someone their data is "deleted"
+ * when an immutable credit ledger keeps their entries under an opaque id would
+ * be a promise the system cannot keep.
+ */
+function EraseAccount({
+  busy,
+  error,
+  fields,
+}: {
+  busy: boolean;
+  error: string | null;
+  fields?: Record<string, string>;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <section
+      style={{
+        marginTop: "2rem",
+        paddingTop: "2rem",
+        borderTop: "1px solid var(--color-rule-soft)",
+      }}
+    >
+      <h2 style={{ fontSize: "var(--text-h4)" }}>Erase this account</h2>
+      <p style={{ marginTop: "0.5rem", color: "var(--color-muted)", maxWidth: "62ch" }}>
+        This permanently removes your name, email address, profile and every way of signing in.
+        It cannot be undone and we cannot recover the account afterwards.
+      </p>
+      <p style={{ marginTop: "0.5rem", color: "var(--color-muted)", maxWidth: "62ch" }}>
+        Your credit history stays in our accounting records under an anonymous identifier, with
+        nothing linking it to you. Consider exporting your data first.
+      </p>
+
+      {!open ? (
+        <button
+          type="button"
+          className="btn btn-quiet"
+          style={{ marginTop: "1.25rem" }}
+          onClick={() => setOpen(true)}
+        >
+          Erase my account
+        </button>
+      ) : (
+        <Form method="post" style={{ display: "grid", gap: "1rem", marginTop: "1.25rem" }}>
+          <input type="hidden" name="intent" value="erase" />
+
+          {error && (
+            <Notice tone="critical" title="We could not erase your account">
+              {error}
+            </Notice>
+          )}
+
+          <Field
+            label="Confirm your password"
+            name="currentPassword"
+            type="password"
+            autoComplete="current-password"
+            required
+            error={fields?.currentPassword}
+          />
+
+          <label style={{ display: "flex", gap: "0.625rem", alignItems: "flex-start" }}>
+            <input type="checkbox" name="understood" id="erase-understood" required />
+            <span style={{ color: "var(--color-muted)" }}>
+              I understand this permanently erases my account and cannot be undone.
+            </span>
+          </label>
+
+          <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+            <button type="submit" className="btn btn-danger" disabled={busy}>
+              {busy ? "Erasing\u2026" : "Erase my account permanently"}
+            </button>
+            <button type="button" className="btn btn-quiet" onClick={() => setOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </Form>
+      )}
+    </section>
   );
 }
 

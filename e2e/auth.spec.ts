@@ -67,7 +67,17 @@ test.describe("signup and verification", () => {
     await expect(page).toHaveURL(/\/auth\/signup/);
   });
 
-  test("an already-registered address gets the same response as a new one", async ({ page }) => {
+  /*
+   * This asserted the opposite until a real person hit it and said, fairly,
+   * that being told "check your email" for an account that already exists —
+   * with no email ever arriving — is indistinguishable from the product being
+   * broken. Signup now says the address is taken, as GitHub, Stripe and Slack
+   * do. Enumeration protection stays on login and password reset, where the
+   * legitimate user loses nothing.
+   */
+  test("an already-registered address is told so, on the form, with no navigation", async ({
+    page,
+  }) => {
     const email = await signUpAndVerify(page, uniqueEmail("dup"));
 
     await page.goto("/auth/signup");
@@ -81,9 +91,9 @@ test.describe("signup and verification", () => {
     await expect(submit).toBeEnabled({ timeout: 20_000 });
     await submit.click();
 
-    // Identical destination, and nothing anywhere admitting the account exists.
-    await expect(page).toHaveURL(/\/auth\/check-email/);
-    await expect(page.locator("body")).not.toContainText(/already (exists|registered|taken)/i);
+    // It stays on the form and says why, rather than promising an email.
+    await expect(page.locator("body")).toContainText(/already exists/i);
+    await expect(page).toHaveURL(/\/auth\/signup/);
   });
 });
 

@@ -37,6 +37,7 @@ import {
   requestContext,
 } from "./middleware/core";
 import { loadPrincipal } from "./middleware/auth";
+import { writeRateLimit } from "./middleware/rate-limit";
 import { authRoutes } from "./routes/auth";
 import { meRoutes } from "./routes/me";
 import { codeRoutes, creditRoutes } from "./routes/credits";
@@ -109,9 +110,34 @@ function cachedConfig(env: Record<string, unknown>): AppConfig {
    */
   const hit = configCache.get(env);
   if (hit) return hit;
-  const parsed = loadConfig(env);
+  const parsed = loadConfig(configSource(env));
   configCache.set(env, parsed);
   return parsed;
+}
+
+/**
+ * The environment as the config schema expects to see it.
+ *
+ * Deployed, the database credentials arrive as a HYPERDRIVE *binding object*
+ * carrying a `connectionString`, and there is no DATABASE_URL anywhere in the
+ * Worker environment. Locally there is, because `.dev.vars` sets one — which is
+ * exactly why this was invisible until the first real deploy: every test and
+ * every `wrangler dev` session supplied the variable that production does not
+ * have, and the Worker threw `DATABASE_URL: expected string, received
+ * undefined` on its very first request.
+ *
+ * Deriving it here rather than in the Worker keeps the WeakMap above keyed on
+ * the original `env` object, whose identity Workers preserve for the life of an
+ * isolate. Spreading into a fresh object at the call site would key the cache on
+ * a new object per request and silently re-parse the config every time.
+ */
+export function configSource(env: Record<string, unknown>): Record<string, unknown> {
+  if (typeof env.DATABASE_URL === "string" && env.DATABASE_URL !== "") return env;
+
+  const hyperdrive = env.HYPERDRIVE as { connectionString?: string } | undefined;
+  if (!hyperdrive?.connectionString) return env;
+
+  return { ...env, DATABASE_URL: hyperdrive.connectionString };
 }
 
 export function buildServices(options: BuildServicesOptions): Services {
@@ -241,6 +267,15 @@ export function createApiApp(services: Services) {
   app.all("/auth/*", (c) => services.auth.handler(c.req.raw));
 
   const v1 = new Hono<Env>();
+
+  /*
+   * Aggregate write ceiling for an authenticated session.
+   *
+   * Mounted here rather than per-route so a new endpoint is covered the day it
+   * is added, instead of the day someone remembers to annotate it. Reads and
+   * unauthenticated requests pass straight through.
+   */
+  v1.use("*", writeRateLimit);
 
   /**
    * The machine-readable API description, generated from the same Zod schemas

@@ -166,6 +166,80 @@ describe("simultaneous redemption of the same campaign by the same user", () => 
   });
 });
 
+describe("many different users redeeming one UNCAPPED campaign at once", () => {
+  /*
+   * The case the campaign lock was removed for.
+   *
+   * An uncapped campaign has no shared quantity to race over, so redemption no
+   * longer takes `FOR UPDATE` on the campaign row. Correctness then rests
+   * entirely on the idempotency key and the unique index — this proves it does.
+   *
+   * Written after a 1,000-bot run found the old unconditional lock serialising
+   * every redeemer of a code: p50 4.8s, and one request killed at 15.1s waiting
+   * on the lock. The guarantee has to survive removing it.
+   */
+  it("grants each user exactly once and leaves the ledger consistent", async () => {
+    const USERS = 30;
+    await makeCampaign({ code: "CROWDCODE", credits: 10, maxTotal: null });
+
+    const users = await Promise.all(
+      Array.from({ length: USERS }, (_, i) =>
+        createTestUser(t.db, { email: `crowd-${i}@example.test` }),
+      ),
+    );
+
+    const results = await Promise.allSettled(
+      users.map((u) =>
+        redemption.redeem(
+          { userId: u.id, code: "crowd-code", idempotencyKey: newId("idem") },
+          { ...ctx, normalizedEmail: u.normalizedEmail },
+        ),
+      ),
+    );
+
+    const failed = results.filter((r) => r.status === "rejected");
+    expect(failed, `all ${USERS} should succeed: ${failed.map((f) => String(f.reason))}`).toEqual([]);
+
+    const rows = await t.db.execute<{ redemptions: string; entries: string; wallets: string; drift: string }>(sql`
+      SELECT
+        (SELECT COUNT(*) FROM access_code_redemptions)                       AS redemptions,
+        (SELECT COUNT(*) FROM credit_ledger)                                 AS entries,
+        (SELECT COALESCE(SUM(balance),0) FROM credit_wallets)                AS wallets,
+        (SELECT COUNT(*) FROM credit_wallets w
+           WHERE w.balance <> (SELECT COALESCE(SUM(l.amount),0) FROM credit_ledger l
+                                WHERE l.wallet_id = w.id))                   AS drift
+    `);
+    const r = rows.rows[0]!;
+
+    expect(Number(r.redemptions), "one redemption per user").toBe(USERS);
+    expect(Number(r.entries), "one ledger entry per user").toBe(USERS);
+    expect(Number(r.wallets), "every balance credited exactly once").toBe(USERS * 10);
+    expect(Number(r.drift), "no wallet disagrees with its own ledger").toBe(0);
+
+    const campaign = await t.db.execute<{ redemption_count: number }>(
+      sql`SELECT redemption_count FROM access_code_campaigns LIMIT 1`,
+    );
+    expect(Number(campaign.rows[0]!.redemption_count), "counter matches reality").toBe(USERS);
+  });
+
+  it("still refuses a second attempt by the same user", async () => {
+    await makeCampaign({ code: "CROWDCODE", credits: 10, maxTotal: null });
+    const user = await createTestUser(t.db, { email: "twice@example.test" });
+
+    await redemption.redeem(
+      { userId: user.id, code: "crowd-code", idempotencyKey: newId("idem") },
+      { ...ctx, normalizedEmail: user.normalizedEmail },
+    );
+
+    await expect(
+      redemption.redeem(
+        { userId: user.id, code: "crowd-code", idempotencyKey: newId("idem") },
+        { ...ctx, normalizedEmail: user.normalizedEmail },
+      ),
+    ).rejects.toMatchObject({ reason: "duplicate" });
+  });
+});
+
 describe("a campaign reaching its final available redemption", () => {
   it("never issues more grants than max_total_redemptions under contention", async () => {
     // 3 seats, 20 distinct users all racing for them.

@@ -61,6 +61,12 @@ export interface Insights {
     requests: number;
     errors: number;
   };
+  /** Measured at request time, not read from the nightly roll-up. */
+  now: {
+    usersTotal: number;
+    databaseBytes: number;
+    connections: number;
+  };
   providers: Array<{
     provider: string;
     metric: string;
@@ -173,14 +179,32 @@ export function BarChart({
  */
 export function Funnel({ steps }: { steps: Array<{ label: string; value: number }> }) {
   const top = steps[0]?.value ?? 0;
+  /*
+   * A funnel step can legitimately exceed the one above it here, and the chart
+   * has to say so rather than draw something impossible.
+   *
+   * The first two steps come from analytics, which is CONSENT-GATED, while the
+   * rest are counted from real tables. Someone who declines analytics, or who
+   * arrives straight at /auth/signup without touching the landing page, is
+   * counted below but not above. So the steps are not nested subsets and the
+   * sequence can go up.
+   *
+   * It did: "Signup started · 500%", a bar five times wider than the funnel it
+   * sits in. Percentages are now of the WIDEST step rather than the first, so a
+   * bar can never overflow its track, and a step that grows is labelled as a
+   * rise instead of being silently rendered as a drop of −400%.
+   */
+  const widest = Math.max(...steps.map((s) => s.value), 0);
 
   return (
     <div className="funnel">
       {steps.map((step, i) => {
         const previous = i > 0 ? (steps[i - 1]?.value ?? 0) : null;
-        const share = top > 0 ? (step.value / top) * 100 : 0;
-        const dropOff =
-          previous && previous > 0 ? Math.round(((previous - step.value) / previous) * 100) : null;
+        const share = widest > 0 ? (step.value / widest) * 100 : 0;
+        const change =
+          previous && previous > 0
+            ? Math.round(((step.value - previous) / previous) * 100)
+            : null;
 
         return (
           <div key={step.label} className="funnel-step">
@@ -188,14 +212,21 @@ export function Funnel({ steps }: { steps: Array<{ label: string; value: number 
               <span>{step.label}</span>
               <span className="funnel-value">
                 {step.value.toLocaleString("en-GB")}
-                {top > 0 && <span className="funnel-share"> · {Math.round(share)}%</span>}
+                {top > 0 && (
+                  <span className="funnel-share"> · {Math.round((step.value / top) * 100)}% of step 1</span>
+                )}
               </span>
             </div>
             <div className="funnel-track">
               <div className="funnel-fill" style={{ width: `${Math.max(share, 1)}%` }} />
             </div>
-            {dropOff !== null && dropOff > 0 && (
-              <p className="funnel-drop">−{dropOff}% from the step above</p>
+            {change !== null && change < 0 && (
+              <p className="funnel-drop">{change}% from the step above</p>
+            )}
+            {change !== null && change > 0 && (
+              <p className="funnel-drop">
+                +{change}% from the step above — this stage is not a subset of the one before it
+              </p>
             )}
           </div>
         );

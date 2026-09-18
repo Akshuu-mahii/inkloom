@@ -164,6 +164,25 @@ export class RateLimiter {
   }
 
   /**
+   * Whether a subject is still within budget, WITHOUT counting an attempt.
+   *
+   * For buckets marked `countFailuresOnly`, where the decision to admit a
+   * request and the decision to charge it are separate: the caller checks here
+   * first, and calls `consume` only if the attempt turns out to have failed. A
+   * `consume` on the way in would charge honest successes too and lock out a
+   * user who has done nothing wrong.
+   */
+  async within(
+    bucket: RateLimitBucket,
+    subject: string,
+    now: Date = new Date(),
+  ): Promise<boolean> {
+    if (this.options.enabled === false) return true;
+    const policy = await this.policyFor(bucket);
+    return (await this.peek(bucket, subject, now)) < policy.limit;
+  }
+
+  /**
    * Clear a subject's counters for a bucket — called after a SUCCESSFUL login
    * so that a user who eventually remembers their password is not still
    * serving a cooldown.

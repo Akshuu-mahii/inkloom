@@ -20,7 +20,21 @@ export default defineConfig({
       {
         test: {
           name: "unit",
-          include: ["packages/*/src/**/*.test.ts"],
+          /*
+           * `apps/web` is here because it was not, and that is where the worst
+           * deploy bug of the project lived: the API client fetching the
+           * Worker's own hostname, which works under Vite and silently returns
+           * an unparseable empty 404 once deployed. Nothing under apps/web was
+           * covered by any project, so no test could have caught it.
+           */
+          include: [
+            "packages/*/src/**/*.test.ts",
+            "apps/web/app/**/*.test.ts",
+            // Operational tooling is code too. The backup verifier in
+            // particular runs unattended against files nobody looks at until
+            // the day they are the only copy left.
+            "scripts/__tests__/**/*.test.ts",
+          ],
           exclude: [
             "**/*.integration.test.ts",
             "**/*.concurrency.test.ts",

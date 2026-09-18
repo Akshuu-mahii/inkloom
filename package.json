@@ -38,14 +38,22 @@
     "up": "docker compose up -d --wait",
     "down": "docker compose down",
     "deploy:staging": "pnpm --filter @inkloom/web deploy:staging",
-    "deploy:production": "pnpm --filter @inkloom/web deploy:production"
+    "deploy:production": "pnpm --filter @inkloom/web deploy:production",
+    "test:live": "playwright test --config playwright.live.config.ts",
+    "backup": "tsx scripts/backup.ts",
+    "backup:verify": "tsx scripts/restore-verify.ts",
+    "restore:drill": "tsx scripts/restore-drill.ts",
+    "drill:damage": "tsx scripts/drill-damage.ts",
+    "deploy:preview": "pnpm --filter @inkloom/web deploy:preview"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
+    "@better-auth/utils": "0.4.2",
     "@eslint/js": "^9.39.0",
     "@playwright/test": "^1.63.0",
     "@types/node": "^22.19.0",
     "@types/pg": "^8.15.6",
+    "better-auth": "1.7.3",
     "dotenv": "^17.2.4",
     "drizzle-orm": "^0.45.2",
     "eslint": "^9.39.0",

@@ -13,7 +13,7 @@
  * whether or not the address exists, and take a similar amount of time. The
  * real outcome goes to `security_events` for operators.
  */
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { eq, sql } from "drizzle-orm";
 import {
   account as accountTable,
@@ -22,11 +22,14 @@ import {
   user as userTable,
   userConsent,
 } from "@inkloom/db";
-import { loginNeedsChallenge } from "@inkloom/core/rate-limit";
+import { loginNeedsChallenge, TWO_FACTOR_LOCK_SECONDS } from "@inkloom/core/rate-limit";
 import { safeRedirectPath } from "@inkloom/core/security";
+import { isAdminRole, type Role } from "@inkloom/core/rbac";
+import { AppError } from "@inkloom/core/errors";
 import { templates } from "@inkloom/email";
 import type { Env } from "../context";
 import { apiError, ok } from "../lib/response";
+import { defer } from "../lib/defer";
 import { body, validateBody } from "../middleware/validate";
 import { bySubjectIp, rateLimit } from "../middleware/rate-limit";
 import { requireAuth } from "../middleware/auth";
@@ -56,6 +59,76 @@ const NEUTRAL_EMAIL_RESPONSE = {
   message: "If that address needs an email from us, it's on its way. Check your inbox.",
 };
 
+/**
+ * What happens when someone signs up with an address that already has an account.
+ *
+ * This DELIBERATELY reveals that the address is registered, which is a reversal
+ * of how this file treats every other flow. The reasoning:
+ *
+ * A signup form cannot really hide it. The address either becomes an account or
+ * it does not, and the person finds out either way the moment they try to use
+ * it. What a neutral response buys is not secrecy — it is a person staring at
+ * "check your email" for a message that is never coming, concluding the product
+ * is broken. GitHub, Stripe, Slack and Google all say plainly that the address
+ * is taken, for exactly that reason.
+ *
+ * Enumeration protection still applies in full to LOGIN and PASSWORD RESET,
+ * where it actually holds: there, an attacker learns nothing about which
+ * addresses exist, and the legitimate user loses nothing because the mail they
+ * are waiting for does arrive.
+ *
+ * The two states are answered differently because they need different things:
+ *
+ *   - VERIFIED: the account is usable. Say so and point at sign-in. No email —
+ *     a "someone tried to sign up as you" notice for a routine duplicate is
+ *     noise, and trains people to ignore security mail that matters.
+ *   - UNVERIFIED: registered but never confirmed, so sign-in will refuse them.
+ *     Telling them to sign in would be a dead end. Resend the confirmation and
+ *     say so.
+ *
+ * Either way the attempt is recorded for operators.
+ */
+async function refuseDuplicateSignup(c: Context<Env>, email: string): Promise<Response> {
+  const { db, auth, audit, logger } = c.get("services");
+
+  logger.info("signup_duplicate", {});
+  await defer(
+    c,
+    audit.security({
+      type: "login_failed",
+      severity: "info",
+      targetEmail: email,
+      ipHash: c.get("ipHash"),
+      requestId: c.get("requestId"),
+      metadata: { flow: "signup_duplicate" },
+    }),
+    "signup_duplicate",
+  );
+
+  const account = await db.query.user.findFirst({
+    where: eq(userTable.normalizedEmail, email.trim().toLowerCase()),
+  });
+
+  if (account && !account.emailVerified) {
+    await auth.api
+      .sendVerificationEmail({ body: { email: account.email } })
+      .catch((error: unknown) => logger.warn("duplicate_signup_resend_failed", { error }));
+
+    return ok(c, {
+      success: true,
+      message:
+        "That address is already registered but not confirmed yet. We have sent the confirmation link again.",
+      nextPath: `/auth/check-email?to=${encodeURIComponent(account.email)}`,
+    });
+  }
+
+  throw apiError("CONFLICT", {
+    details: {
+      email: "An account with this email already exists. Sign in instead.",
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // POST /auth/signup
 // ---------------------------------------------------------------------------
@@ -65,7 +138,7 @@ authRoutes.post(
   validateBody(signupSchema),
   async (c) => {
     const input = body<SignupInput>(c);
-    const { auth, db, config, settings, turnstile, audit, logger } = c.get("services");
+    const { auth, db, config, settings, turnstile, audit } = c.get("services");
 
     // Operator kill switch, checked server-side on every attempt.
     if (!(await settings.isEnabled("signup_enabled"))) {
@@ -77,14 +150,18 @@ authRoutes.post(
     // Turnstile is always required on signup, per the brief.
     const verified = await turnstile.verify(input.turnstileToken, c.get("clientIp"));
     if (!verified.success) {
-      await audit.security({
+      await defer(
+        c,
+        audit.security({
         type: "turnstile_failed",
         severity: "warning",
         targetEmail: input.email,
         ipHash: c.get("ipHash"),
         requestId: c.get("requestId"),
         metadata: { flow: "signup", errorCodes: verified.errorCodes },
-      });
+        }),
+        "turnstile_failed",
+      );
       throw apiError("TURNSTILE_FAILED");
     }
 
@@ -110,36 +187,15 @@ authRoutes.post(
         : null;
       createdUserId = persisted ? candidateId : null;
 
-      if (!persisted) {
-        logger.info("signup_duplicate", {});
-        await audit.security({
-          type: "login_failed",
-          severity: "info",
-          targetEmail: input.email,
-          ipHash: c.get("ipHash"),
-          requestId: c.get("requestId"),
-          metadata: { flow: "signup_duplicate" },
-        });
-        return ok(c, { ...NEUTRAL_EMAIL_RESPONSE, nextPath: "/auth/check-email" });
-      }
-    } catch {
-      // An already-registered address lands here. We must NOT say so.
-      // Instead: record it, send the existing account a "someone tried to sign
-      // up with your address" nudge via the normal verification path, and
-      // return the same neutral response a fresh signup gets.
-      logger.info("signup_rejected", { reason: "duplicate_or_invalid" });
-      await audit.security({
-        type: "login_failed",
-        severity: "info",
-        targetEmail: input.email,
-        ipHash: c.get("ipHash"),
-        requestId: c.get("requestId"),
-        metadata: { flow: "signup_duplicate" },
-      });
-      return ok(c, {
-        ...NEUTRAL_EMAIL_RESPONSE,
-        nextPath: "/auth/check-email",
-      });
+      if (!persisted) return await refuseDuplicateSignup(c, input.email);
+    } catch (error) {
+      /*
+       * Better Auth throws here for an already-registered address — and also for
+       * anything else it refuses. `refuseDuplicateSignup` throws CONFLICT, so it
+       * must not be swallowed by this same catch on its way out.
+       */
+      if (error instanceof AppError) throw error;
+      return await refuseDuplicateSignup(c, input.email);
     }
 
     if (createdUserId) {
@@ -244,20 +300,66 @@ authRoutes.post(
     const { auth, db, limiter, turnstile, audit, logger } = c.get("services");
     const ipHash = c.get("ipHash");
 
+    /*
+     * --- Staff accounts get a tighter budget -------------------------------
+     *
+     * `admin.login.account` allows 5 failures per 15 minutes against a staff
+     * address, where an ordinary account gets 10. Staff credentials are the
+     * highest-value target on the platform, and a stolen one reaches the
+     * console rather than a single user's dashboard.
+     *
+     * The trade-off, stated plainly because it cuts against the enumeration
+     * rule at the top of this file: an attacker willing to spend six failed
+     * attempts on one address can tell a staff account from an ordinary one by
+     * which threshold it trips. That is a real leak, and it is accepted here
+     * for two reasons — the sixth attempt costs a Turnstile solve (the
+     * challenge kicks in at three), and every one of those attempts writes a
+     * security event, so buying the answer is neither cheap nor quiet. Both
+     * budgets return the same RATE_LIMITED response, so only the count differs.
+     *
+     * If that trade ever looks wrong, deleting this block restores the uniform
+     * behaviour; nothing else depends on it.
+     */
+    const staffAccount = await db.query.user.findFirst({
+      columns: { role: true },
+      where: eq(userTable.normalizedEmail, input.email),
+    });
+    const isStaff = staffAccount ? isAdminRole(staffAccount.role as Role) : false;
+
+    if (isStaff && !(await limiter.within("admin.login.account", `email:${input.email}`))) {
+      await defer(
+        c,
+        audit.security({
+          type: "rate_limit_exceeded",
+          severity: "critical",
+          targetEmail: input.email,
+          ipHash,
+          requestId: c.get("requestId"),
+          metadata: { bucket: "admin.login.account", flow: "admin_login_throttled" },
+        }),
+        "rate_limit_exceeded",
+      );
+      throw apiError("RATE_LIMITED", { retryAfter: 900 });
+    }
+
     // --- Progressive cooldown, per account ---------------------------------
     // Not a lockout: the wait grows with consecutive failures, caps at 15
     // minutes, and decays on its own. A user who eventually remembers their
     // password is never permanently locked out.
     const { waitSeconds, failures } = await limiter.loginCooldown(input.email);
     if (waitSeconds > 0) {
-      await audit.security({
+      await defer(
+        c,
+        audit.security({
         type: "rate_limit_exceeded",
         severity: "warning",
         targetEmail: input.email,
         ipHash,
         requestId: c.get("requestId"),
         metadata: { flow: "login_cooldown", failures, waitSeconds },
-      });
+        }),
+        "rate_limit_exceeded",
+      );
       throw apiError("RATE_LIMITED", { retryAfter: waitSeconds });
     }
 
@@ -305,6 +407,7 @@ authRoutes.post(
 
       // --- Success -------------------------------------------------------
       await limiter.reset("auth.login.account", `email:${input.email}`);
+      if (isStaff) await limiter.reset("admin.login.account", `email:${input.email}`);
 
       const account = await db.query.user.findFirst({
         where: eq(userTable.normalizedEmail, input.email),
@@ -316,14 +419,18 @@ authRoutes.post(
           .set({ lastLoginAt: new Date(), lastLoginIpHash: ipHash })
           .where(eq(userTable.id, account.id));
 
-        await audit.security({
+        await defer(
+          c,
+          audit.security({
           type: account.role === "user" ? "login_succeeded" : "admin_login",
           severity: account.role === "user" ? "info" : "warning",
           userId: account.id,
           ipHash,
           requestId: c.get("requestId"),
           userAgent: c.req.header("user-agent") ?? null,
-        });
+          }),
+          "security_event",
+        );
       }
 
       const response = ok(c, {
@@ -335,8 +442,12 @@ authRoutes.post(
     } catch {
       // Count the failure against BOTH the account and the network.
       await limiter.consume("auth.login.account", `email:${input.email}`);
+      // And, for staff, against the tighter staff budget as well.
+      if (isStaff) await limiter.consume("admin.login.account", `email:${input.email}`);
 
-      await audit.security({
+      await defer(
+        c,
+        audit.security({
         type: "login_failed",
         severity: failures >= 5 ? "warning" : "info",
         targetEmail: input.email,
@@ -344,7 +455,9 @@ authRoutes.post(
         requestId: c.get("requestId"),
         userAgent: c.req.header("user-agent") ?? null,
         metadata: { failures: failures + 1 },
-      });
+        }),
+        "login_failed",
+      );
 
       logger.info("login_failed", { failures: failures + 1 });
 
@@ -386,12 +499,16 @@ authRoutes.post("/logout-all", requireAuth, async (c) => {
     requestId: c.get("requestId"),
     ipHash: c.get("ipHash"),
   });
-  await audit.security({
+  await defer(
+    c,
+    audit.security({
     type: "sessions_revoked_all",
     userId: principal.userId,
     ipHash: c.get("ipHash"),
     requestId: c.get("requestId"),
-  });
+    }),
+    "sessions_revoked_all",
+  );
 
   const response = ok(c, { success: true });
   copySetCookies(result, response);
@@ -403,16 +520,43 @@ authRoutes.post("/logout-all", requireAuth, async (c) => {
 // ---------------------------------------------------------------------------
 authRoutes.post("/verify-email", validateBody(verifyEmailSchema), async (c) => {
   const { token } = body<{ token: string }>(c);
-  const { auth, db, mailer, config, audit, credits } = c.get("services");
+  const { auth, db, mailer, config, audit, credits, logger } = c.get("services");
 
+  /*
+   * Keep the reason on the server.
+   *
+   * The response is deliberately vague — invalid vs. expired vs. already used
+   * is not something a caller needs, and distinguishing them lets an attacker
+   * probe token validity. But swallowing the reason ENTIRELY left nothing to
+   * debug with either: a verification that failed in production produced one
+   * indistinguishable VALIDATION_ERROR whether the secret had rotated, the
+   * clock had drifted, or the link really was a day old. The operator and the
+   * attacker were equally in the dark, which is only half of the goal.
+   */
   const result = await auth.api
     .verifyEmail({ query: { token }, headers: c.req.raw.headers, asResponse: true })
-    .catch(() => null);
+    .catch((error: unknown) => {
+      logger.warn("verify_email_threw", {
+        error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+      });
+      return null;
+    });
 
   if (!result || !result.ok) {
-    // Deliberately vague: a token being invalid vs. expired vs. already used
-    // is not information a caller needs, and distinguishing them would help an
-    // attacker probe token validity.
+    // The body carries Better Auth's own reason; it is logged, never returned.
+    const reason = result
+      ? await result
+          .clone()
+          .text()
+          .then((t) => t.slice(0, 300))
+          .catch(() => "<unreadable>")
+      : "<threw>";
+    logger.warn("verify_email_rejected", {
+      status: result?.status ?? null,
+      location: result?.headers.get("location") ?? null,
+      reason,
+    });
+
     throw apiError("VALIDATION_ERROR", {
       details: { token: "This link is invalid or has expired. Request a new one." },
     });
@@ -589,12 +733,16 @@ authRoutes.post(
         });
     }
 
-    await audit.security({
+    await defer(
+      c,
+      audit.security({
       type: "password_reset_requested",
       targetEmail: email,
       ipHash: c.get("ipHash"),
       requestId: c.get("requestId"),
-    });
+      }),
+      "password_reset_requested",
+    );
 
     // Always the same answer.
     return ok(c, NEUTRAL_EMAIL_RESPONSE);
@@ -618,12 +766,16 @@ authRoutes.post("/reset-password", validateBody(resetPasswordSchema), async (c) 
     });
   }
 
-  await audit.security({
+  await defer(
+    c,
+    audit.security({
     type: "password_reset_completed",
     severity: "warning",
     ipHash: c.get("ipHash"),
     requestId: c.get("requestId"),
-  });
+    }),
+    "password_reset_completed",
+  );
 
   // Better Auth revokes every session on reset (revokeSessionsOnPasswordReset)
   // and `onPasswordReset` sends the notification email.
@@ -682,13 +834,17 @@ authRoutes.post("/change-password", requireAuth, validateBody(changePasswordSche
     requestId: c.get("requestId"),
     ipHash: c.get("ipHash"),
   });
-  await audit.security({
+  await defer(
+    c,
+    audit.security({
     type: "password_changed",
     severity: "warning",
     userId: principal.userId,
     ipHash: c.get("ipHash"),
     requestId: c.get("requestId"),
-  });
+    }),
+    "password_changed",
+  );
 
   const response = ok(c, { success: true });
   copySetCookies(result, response);
@@ -757,14 +913,18 @@ authRoutes.post("/set-password", requireAuth, validateBody(setPasswordSchema), a
     ),
   });
 
-  await audit.security({
+  await defer(
+    c,
+    audit.security({
     type: "password_changed",
     severity: "warning",
     userId: principal.userId,
     ipHash: c.get("ipHash"),
     requestId: c.get("requestId"),
     metadata: { firstPassword: true },
-  });
+    }),
+    "password_changed",
+  );
 
   return ok(c, { success: true });
 });
@@ -791,9 +951,28 @@ authRoutes.post(
   requireAuth,
   validateBody(twoFactorPasswordSchema),
   async (c) => {
-    const { auth, audit } = c.get("services");
+    const { auth, audit, db } = c.get("services");
     const principal = c.get("principal")!;
     const input = body<{ currentPassword: string }>(c);
+
+    /*
+     * Clear any abandoned enrolment before starting a new one.
+     *
+     * `enableTwoFactor` INSERTS a row each time it is called, and the schema
+     * puts a plain (non-unique) index on user_id, so a second visit to the
+     * setup form leaves two unverified rows for one user. `verifyTOTP` then
+     * looks up "the" row for that user and gets an arbitrary one — usually not
+     * the one whose secret is in the QR code the person just scanned — so
+     * enrolment becomes permanently unverifiable, and the only feedback is
+     * "that code is not valid" no matter how many correct codes are typed.
+     *
+     * Only UNVERIFIED rows are removed. A verified row is live 2FA, and
+     * deleting it here would silently downgrade an account's security while
+     * appearing to do the opposite.
+     */
+    await db.execute(sql`
+      DELETE FROM two_factor WHERE user_id = ${principal.userId} AND verified = false
+    `);
 
     const result = await auth.api
       .enableTwoFactor({
@@ -831,23 +1010,56 @@ authRoutes.post(
 );
 
 authRoutes.post("/two-factor/confirm", requireAuth, validateBody(twoFactorSchema), async (c) => {
-  const { auth, audit } = c.get("services");
+  const { auth, audit, logger } = c.get("services");
   const principal = c.get("principal")!;
   const input = body<{ code: string }>(c);
 
   const result = await auth.api
     .verifyTOTP({ body: { code: input.code }, headers: c.req.raw.headers, asResponse: true })
-    .catch(() => null);
+    .catch((error: unknown) => {
+      logger.warn("two_factor_confirm_threw", {
+        userId: principal.userId,
+        error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+      });
+      return null;
+    });
 
   if (!result || !result.ok) {
-    await audit.security({
+    /*
+     * Keep the reason server-side.
+     *
+     * "That code is not valid" is the right answer for the user, but it was
+     * also the only thing WE had: a wrong code, a skewed clock, a duplicated
+     * enrolment row and a rejected session all produced one identical string.
+     * The code itself is never logged — it is a live credential for ~30
+     * seconds — but everything about why it was refused is.
+     */
+    const reason = await result
+      ?.clone()
+      .text()
+      .then((t) => t.slice(0, 300))
+      .catch(() => "<unreadable>");
+    logger.warn("two_factor_confirm_rejected", {
+      userId: principal.userId,
+      status: result?.status ?? null,
+      reason: reason ?? "<threw>",
+      codeLength: input.code.length,
+    });
+  }
+
+  if (!result || !result.ok) {
+    await defer(
+      c,
+      audit.security({
       type: "admin_2fa_failed",
       severity: "warning",
       userId: principal.userId,
       ipHash: c.get("ipHash"),
       requestId: c.get("requestId"),
       metadata: { stage: "setup" },
-    });
+      }),
+      "security_event",
+    );
     throw apiError("INVALID_CREDENTIALS", { details: { code: "That code is not valid." } });
   }
 
@@ -906,13 +1118,17 @@ authRoutes.post(
       });
     }
 
-    await audit.security({
+    await defer(
+      c,
+      audit.security({
       type: "two_factor_disabled",
       severity: "warning",
       userId: principal.userId,
       ipHash: c.get("ipHash"),
       requestId: c.get("requestId"),
-    });
+      }),
+      "two_factor_disabled",
+    );
 
     const response = ok(c, { success: true });
     copySetCookies(result, response);
@@ -952,17 +1168,29 @@ for (const [path, apiMethod, eventOnFailure] of [
       }).catch(() => null);
 
       if (!result || !result.ok) {
-        await audit.security({
-          type: eventOnFailure,
-          severity: "warning",
-          ipHash: c.get("ipHash"),
-          requestId: c.get("requestId"),
-          metadata: { method: path.endsWith("backup") ? "backup_code" : "totp" },
-        });
-        // One message for a wrong code and an expired one alike.
-        throw apiError("INVALID_CREDENTIALS", {
-          details: { code: "That code is not valid." },
-        });
+        const refusal = await classifyTwoFactorRefusal(result);
+
+        await defer(
+          c,
+          audit.security({
+            // A lockout is a different event from a mistyped code: one is a
+            // user fumbling, the other is the account-level brute-force budget
+            // being spent. Recording both as `admin_2fa_failed` made a grinding
+            // attack indistinguishable from a typo in the security trail.
+            type: refusal.kind === "locked" ? "rate_limit_exceeded" : eventOnFailure,
+            severity: refusal.kind === "wrong_code" ? "warning" : "critical",
+            ipHash: c.get("ipHash"),
+            requestId: c.get("requestId"),
+            metadata: {
+              method: path.endsWith("backup") ? "backup_code" : "totp",
+              reason: refusal.kind,
+              flow: "two_factor_verify",
+            },
+          }),
+          "security_event",
+        );
+
+        throw refusal.error;
       }
 
       const response = ok(c, { success: true });
@@ -970,6 +1198,79 @@ for (const [path, apiMethod, eventOnFailure] of [
       return response;
     },
   );
+}
+
+type TwoFactorRefusalKind = "wrong_code" | "challenge_spent" | "locked";
+
+/**
+ * Translate Better Auth's three distinct 2FA refusals into our taxonomy.
+ *
+ * The library already distinguishes them; this wrapper used to throw them all
+ * away, answering every one with `INVALID_CREDENTIALS` and the message "Those
+ * details don't match an account. Check your email and password." That was
+ * wrong three times over. It names email and password to someone who just
+ * typed a six-digit code; it tells a user whose challenge is spent that their
+ * password is bad, when what they must do is sign in again; and it hides a
+ * fifteen-minute lockout entirely, so a locked-out user sees "wrong code"
+ * forever with nothing to indicate that waiting is what fixes it.
+ *
+ * None of this leaks anything. The enumeration rule protects the fact that an
+ * address HAS an account — a caller who has already supplied the right password
+ * and holds a live challenge cookie knows that. What is withheld here is still
+ * everything that matters: whether the code was close, which factor is
+ * enrolled, how many attempts remain.
+ *
+ *   401 INVALID_CODE                     -> wrong code, attempts remain
+ *   400 TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE -> challenge spent, sign in again
+ *   429 ACCOUNT_TEMPORARILY_LOCKED       -> account budget spent, wait it out
+ *
+ * Both the status and the body code are checked, so a library that changes one
+ * of the two still classifies correctly, and anything unrecognised falls back
+ * to the safest reading (a wrong code).
+ */
+async function classifyTwoFactorRefusal(
+  result: Response | null,
+): Promise<{ kind: TwoFactorRefusalKind; error: AppError }> {
+  const status = result?.status ?? 0;
+  const libraryCode = result
+    ? ((await result
+        .clone()
+        .json()
+        .catch(() => null)) as { code?: string } | null)?.code
+    : null;
+
+  if (status === 429 || libraryCode === "ACCOUNT_TEMPORARILY_LOCKED") {
+    const minutes = Math.round(TWO_FACTOR_LOCK_SECONDS / 60);
+    return {
+      kind: "locked",
+      error: new AppError(
+        "RATE_LIMITED",
+        `Too many incorrect codes. Try again in ${minutes} minutes.`,
+        {
+          retryAfter: TWO_FACTOR_LOCK_SECONDS,
+          details: { code: `Locked for ${minutes} minutes after repeated failures.` },
+        },
+      ),
+    };
+  }
+
+  if (status === 400 || libraryCode === "TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE") {
+    return {
+      kind: "challenge_spent",
+      error: new AppError(
+        "UNAUTHENTICATED",
+        "Too many attempts on this sign-in. Please sign in again.",
+        { details: { code: "This sign-in attempt has expired.", nextPath: "/auth/login" } },
+      ),
+    };
+  }
+
+  return {
+    kind: "wrong_code",
+    error: new AppError("INVALID_CREDENTIALS", "That code is not valid.", {
+      details: { code: "That code is not valid." },
+    }),
+  };
 }
 
 /**

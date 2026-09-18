@@ -7,8 +7,8 @@
  * spending the daily quota — and, worse, a typo in a fixture could put a real
  * stranger's address on a development send.
  */
-import { describe, expect, it } from "vitest";
-import { DevelopmentMailRouter, isUndeliverableTestAddress } from "../transport";
+import { describe, expect, it, vi } from "vitest";
+import { DevelopmentMailRouter, ResendTransport, isUndeliverableTestAddress } from "../transport";
 import type { EmailTransport, SendEmailInput, SendResult } from "../types";
 
 class Spy implements EmailTransport {
@@ -126,5 +126,63 @@ describe("DevelopmentMailRouter", () => {
     const { router } = build();
     const result = await router.send(message("mayank@gmail.com"), "Inkloom <x@y.com>");
     expect(result).toEqual({ ok: true, providerMessageId: "resend_1" });
+  });
+});
+
+
+// ===========================================================================
+
+describe("the real provider never sees an address that cannot exist", () => {
+  /*
+   * Load testing was the forcing function, but the reason is permanent.
+   *
+   * A run that creates ten thousand `@example.test` accounts would, without
+   * this, make ten thousand Resend calls: exhausting a 100/day quota in the
+   * first minute and recording thousands of hard bounces against a sending
+   * domain whose reputation is days old. Bounces are the single fastest way to
+   * get a new domain treated as a spammer, and that damage outlives the test.
+   *
+   * The check is on the RECIPIENT, so it cannot be turned against a real user:
+   * RFC 2606 and RFC 6761 reserve these domains permanently and no real mailbox
+   * can ever be registered behind one.
+   */
+  const transport = () => new ResendTransport("re_should_never_be_used");
+
+  it.each([
+    "bot-0001@example.test",
+    "someone@sub.example.test",
+    "a@example.com",
+    "b@foo.invalid",
+    "c@localhost",
+  ])("does not call the provider for %s", async (to) => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await transport().send(
+      { to, subject: "s", html: "<p>h</p>", text: "h", template: "verify_email" },
+      "Inkloom <no-reply@mail.inkloom.art>",
+    );
+
+    expect(result.ok).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("still calls the provider for a real address", async () => {
+    const fetchSpy = vi.fn(async () =>
+      new Response(JSON.stringify({ id: "msg_1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await transport().send(
+      { to: "a.real.person@gmail.com", subject: "s", html: "<p>h</p>", text: "h", template: "verify_email" },
+      "Inkloom <no-reply@mail.inkloom.art>",
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
   });
 });

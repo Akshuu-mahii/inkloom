@@ -211,3 +211,66 @@ export const providerMetric = pgTable(
     index("provider_metrics_day_idx").on(t.day.desc()),
   ],
 );
+
+/**
+ * A durable record of every scheduled job run.
+ *
+ * The retention sweep used to leave no trace. It logged to Workers Logs, and
+ * only when it actually removed something, so a sweep that deleted nothing and
+ * a sweep that never ran produced identical evidence: none. The privacy policy
+ * publishes a retention period for every category of data we hold, and the job
+ * that keeps that promise could not be shown to have run at all — which is the
+ * part an auditor asks about first.
+ *
+ * One row per completed run, written by the job itself. Two properties matter:
+ *
+ *   - It is QUERYABLE. "When did retention last succeed?" is a SQL question,
+ *     answerable months later, not a log search with a retention period of its
+ *     own that is shorter than the thing it is evidence for.
+ *   - Its ABSENCE is the alert. A run that dies halfway — the isolate is
+ *     killed, the database is unreachable, the cron never fires — writes
+ *     nothing, so staleness is detected by the newest row's age rather than by
+ *     an error anyone has to remember to raise. Nothing has to go right for the
+ *     alarm to work.
+ *
+ * Not append-only: these rows are operational exhaust, swept by the retention
+ * job like anything else. The audit trail lives in `audit_events`.
+ */
+export const jobRun = pgTable(
+  "job_runs",
+  {
+    id: text("id").primaryKey(),
+
+    /** Stable job key, e.g. "retention_sweep". */
+    job: text("job").notNull(),
+
+    startedAt: tsCol("started_at").notNull(),
+    finishedAt: tsCol("finished_at").notNull(),
+
+    /**
+     * "ok" — every step succeeded.
+     * "partial" — the run completed but at least one step failed.
+     * "failed" — the run itself threw.
+     *
+     * "partial" exists because the sweep deliberately continues past a failing
+     * step: lock contention on analytics must not mean expired export payloads
+     * survive another day. Collapsing that into "ok" would hide a step that has
+     * been quietly failing for weeks.
+     */
+    status: text("status").notNull(),
+
+    durationMs: integer("duration_ms").notNull(),
+    removed: integer("removed").notNull().default(0),
+
+    /** Per-step detail, so a chronically failing step is visible without logs. */
+    steps: jsonb("steps").$type<Array<Record<string, unknown>>>(),
+
+    error: text("error"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    check("job_runs_status_check", sql`${t.status} IN ('ok', 'partial', 'failed')`),
+    // The staleness query is "newest run of this job", so the index carries it.
+    index("job_runs_job_finished_idx").on(t.job, t.finishedAt.desc()),
+  ],
+);

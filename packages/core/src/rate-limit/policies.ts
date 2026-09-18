@@ -142,6 +142,27 @@ export const RATE_LIMIT_POLICIES = {
     scope: "user",
     description: "Authenticated state-changing requests per user per minute",
   },
+  /*
+   * Data export, on its own budget.
+   *
+   * It used to borrow `support.submit.user`. Sharing one counter meant filing
+   * five support tickets silently removed a person's ability to export their
+   * own data — a right, blocked by an unrelated action, with a message about
+   * rate limits. The two are both expensive per-user operations and that is the
+   * only thing they have in common.
+   *
+   * Three a day: an export assembles a complete copy of everything held about
+   * an account, so it is genuinely costly, and nobody legitimately needs a
+   * fourth in one day. Counts successes as well as failures, because the cost
+   * is in producing it, not in getting it wrong.
+   */
+  "data.export.user": {
+    bucket: "data.export.user",
+    limit: 3,
+    windowSeconds: 86400,
+    scope: "user",
+    description: "Data export requests per user per day",
+  },
   "analytics.ingest.ip": {
     bucket: "analytics.ingest.ip",
     limit: 300,
@@ -179,6 +200,29 @@ export function loginCooldownSeconds(failures: number): number {
   const base = COOLDOWN_LADDER[index] ?? MAX_LOGIN_COOLDOWN_SECONDS;
   return failures >= COOLDOWN_LADDER.length ? MAX_LOGIN_COOLDOWN_SECONDS : base;
 }
+
+/**
+ * Account-level brute-force budget for the SECOND factor.
+ *
+ * Distinct from the login ladder above, and deliberately so: the password is
+ * already known to whoever reaches this point, so the second factor is the only
+ * thing standing between an attacker and the account. The budget is counted on
+ * the `two_factor` row — `failed_verification_count` and `locked_until` — which
+ * makes it per-account rather than per-network. Rotating IPs does not refresh
+ * it, and neither does signing in again for a fresh challenge.
+ *
+ * Better Auth enforces this, not us: these values are passed to its `twoFactor`
+ * plugin, which owns the atomic increment. They are named here so the policy is
+ * stated in one place rather than inherited silently from a library default,
+ * and so the message we show a locked-out user can quote the real number.
+ *
+ * Same principle as login: bounded, never permanent. Ten consecutive failures
+ * cost fifteen minutes, the counter resets on any success, and the lock expires
+ * on its own — an attacker cannot brick someone else's account by failing on
+ * purpose.
+ */
+export const TWO_FACTOR_MAX_FAILED_ATTEMPTS = 10;
+export const TWO_FACTOR_LOCK_SECONDS = 900;
 
 /**
  * Whether login should additionally demand a Turnstile challenge.

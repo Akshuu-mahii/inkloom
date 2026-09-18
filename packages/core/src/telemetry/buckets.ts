@@ -52,7 +52,30 @@ export function bucketFor(durationMs: number): string {
  * bucket. Those are different facts and callers must render them differently —
  * printing 0ms for either would read as excellent performance.
  */
-export function percentileFrom(buckets: Record<string, number>, percentile: number): number | null {
+export function percentileFrom(buckets: Record<string, number>, fraction: number): number | null {
+  /*
+   * A FRACTION, not a percentile. 0.95, never 95.
+   *
+   * Renamed and guarded after a capacity measurement passed `50` and got `-1`
+   * back for every route — "the tail ran past the largest bucket" — while the
+   * bucket contents plainly showed a p50 of about 5ms. The old signature took
+   * `percentile`, which invites exactly that call, and the failure was silent
+   * because `total * 50` is simply never reached, so the loop falls through to
+   * the sentinel. An hour of load-test output looked like a latency
+   * catastrophe and was a unit error.
+   *
+   * Throwing rather than converting: silently reading `95` as `0.95` would fix
+   * the number and leave the wrong call in the codebase. This is a pure
+   * function called from an admin page and from scripts, never on a request
+   * path, so a loud failure costs nothing and is the only thing that would
+   * have saved that hour.
+   */
+  if (!(fraction > 0 && fraction <= 1)) {
+    throw new RangeError(
+      `percentileFrom expects a fraction between 0 and 1 (0.95, not 95); received ${fraction}`,
+    );
+  }
+
   const total = Object.values(buckets).reduce((sum, n) => sum + n, 0);
   if (total === 0) return null;
 
@@ -60,7 +83,7 @@ export function percentileFrom(buckets: Record<string, number>, percentile: numb
     .map(([bound, count]) => ({ bound: bound === "inf" ? Infinity : Number(bound), count }))
     .sort((a, b) => a.bound - b.bound);
 
-  const target = total * percentile;
+  const target = total * fraction;
   let seen = 0;
   for (const { bound, count } of ordered) {
     seen += count;

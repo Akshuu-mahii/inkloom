@@ -10,10 +10,24 @@ export interface SecurityHeaderOptions {
   /** Per-response nonce for inline scripts. Generated fresh for every request. */
   nonce: string;
   isProduction: boolean;
+  /**
+   * Whether this deployment is served over HTTPS.
+   *
+   * Separate from `isProduction` on purpose. Three hardening measures used to
+   * key off `isProduction` alone — HSTS, `strict-dynamic` and
+   * `upgrade-insecure-requests` — which meant production was the FIRST place
+   * any of them ever ran. Staging is supposed to be a rehearsal; a policy that
+   * only exists in production is a policy nobody has tested.
+   *
+   * `strict-dynamic` is the sharp one: under it, host allowlists and `'self'`
+   * in `script-src` are ignored entirely, and only nonced scripts (plus what
+   * they load) execute. A single un-nonced bundle tag would have taken the
+   * whole application down in production while staging looked perfect.
+   */
+  isSecureTransport: boolean;
   /** Extra connect-src entries, e.g. the Sentry ingest host. */
   connectSrc?: readonly string[];
   /** Turnstile is only loaded on pages that render the widget. */
-  allowTurnstile?: boolean;
 }
 
 /**
@@ -31,16 +45,40 @@ export interface SecurityHeaderOptions {
  *  - `object-src 'none'`, `base-uri 'self'` — closes plugin and base-tag
  *    injection paths.
  */
+/**
+ * Cloudflare's bot-protection origin, allowed on EVERY document.
+ *
+ * It needs three directives, not one: `script-src` so the widget's script
+ * loads, `frame-src` so its iframe renders, and `connect-src` because the
+ * script calls back to Cloudflare over fetch to fetch and solve the challenge.
+ * Missing the third produced the most misleading failure in this project — the
+ * script loaded and reported success, then silently produced no widget, and the
+ * form told the visitor their ad-blocker was at fault.
+ *
+ * UNCONDITIONAL, and that is the correction to a real mistake. These origins
+ * used to be added only on the routes that render a form. But CSP is a property
+ * of a DOCUMENT, not of a route, and this is a client-side-routed application:
+ * clicking from the home page to /auth/signup fetches no new document, so the
+ * page keeps running under the home page's CSP and Turnstile is blocked
+ * outright. It worked on refresh — a real document load — which made it look
+ * like flakiness rather than a header.
+ *
+ * Per-route CSP cannot work here. The cost of allowing it everywhere is that an
+ * injected script could load Cloudflare's own bot-protection bundle, which is
+ * not an escalation worth the broken signup form it was buying.
+ */
+const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
+
 export function contentSecurityPolicy(options: SecurityHeaderOptions): string {
   const script = [
     "'self'",
     `'nonce-${options.nonce}'`,
-    options.isProduction ? "'strict-dynamic'" : "",
-    options.allowTurnstile ? "https://challenges.cloudflare.com" : "",
+    options.isSecureTransport ? "'strict-dynamic'" : "",
+    TURNSTILE_ORIGIN,
   ].filter(Boolean);
 
-  const connect = ["'self'", ...(options.connectSrc ?? [])];
-  const frame = options.allowTurnstile ? ["https://challenges.cloudflare.com"] : ["'none'"];
+  const connect = ["'self'", TURNSTILE_ORIGIN, ...(options.connectSrc ?? [])];
+  const frame = [TURNSTILE_ORIGIN];
 
   const directives: Array<[string, string[]]> = [
     ["default-src", ["'self'"]],
@@ -58,7 +96,7 @@ export function contentSecurityPolicy(options: SecurityHeaderOptions): string {
     ["manifest-src", ["'self'"]],
   ];
 
-  if (options.isProduction) {
+  if (options.isSecureTransport) {
     directives.push(["upgrade-insecure-requests", []]);
   }
 
@@ -94,10 +132,23 @@ export function securityHeaders(options: SecurityHeaderOptions): Record<string, 
     "X-Frame-Options": "DENY",
   };
 
+  /*
+   * HSTS on every HTTPS deployment, but only production commits to the strong
+   * form.
+   *
+   * Staging gets a plain one-year max-age: enough to exercise the header and
+   * catch a mixed-content or redirect problem, while staying reversible by
+   * lowering max-age. `includeSubDomains; preload` is neither — preload in
+   * particular is a public list that takes months to leave, and it would bind
+   * every subdomain of the apex, so it stays a deliberate production-only
+   * commitment.
+   *
+   * Never sent over plain HTTP, where it would poison localhost.
+   */
   if (options.isProduction) {
-    // Two years, subdomains included, preload-eligible. Only sent over HTTPS,
-    // and never in development where it would poison localhost.
     headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload";
+  } else if (options.isSecureTransport) {
+    headers["Strict-Transport-Security"] = "max-age=31536000";
   }
 
   return headers;

@@ -176,6 +176,30 @@ export function loadConfig(source: Record<string, unknown>): AppConfig {
         `TURNSTILE_SECRET_KEY is required in ${env.INKLOOM_ENV} while Turnstile is enabled.`,
       );
     }
+    /*
+     * The site key matters as much as the secret, and fails far more quietly.
+     *
+     * It is public — it ships in the HTML — so it lives in wrangler.jsonc rather
+     * than in secrets, and that is exactly what makes it easy to lose: Wrangler
+     * REPLACES the top-level `vars` block with `env.<name>.vars` instead of
+     * merging, so a key set once at the top silently becomes "" in every
+     * deployed environment. The widget then renders with an empty sitekey and
+     * issues no token, while the server keeps demanding one, and signup, login,
+     * password reset and contact all fail with nothing but "captcha failed" to
+     * go on. Refusing to boot turns a day of debugging into one clear line.
+     */
+    if (env.TURNSTILE_ENABLED && !env.TURNSTILE_SITE_KEY) {
+      throw new ConfigError(
+        `TURNSTILE_SITE_KEY is required in ${env.INKLOOM_ENV} while Turnstile is enabled. ` +
+          `Set it in the "${env.INKLOOM_ENV}" vars block of wrangler.jsonc — note that ` +
+          `env vars REPLACE the top-level block rather than merging with it.`,
+      );
+    }
+    if (env.TURNSTILE_SITE_KEY.startsWith("1x000000")) {
+      throw new ConfigError(
+        `TURNSTILE_SITE_KEY is Cloudflare's always-passing test key. Use a real key in ${env.INKLOOM_ENV}.`,
+      );
+    }
     // Cloudflare's public test keys always pass; shipping them is the same as
     // having no bot protection at all.
     if (env.TURNSTILE_SECRET_KEY.startsWith("1x000000")) {

@@ -19,6 +19,14 @@ const BASE_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
  */
 export default defineConfig({
   testDir: "./e2e",
+  /*
+   * `e2e/live` targets a DEPLOYED url and has its own config. Without this it
+   * would be picked up here too and run against localhost, where its assertions
+   * about the deployed environment are meaningless — and, worse, where the
+   * global setup would raise rate limits before pointing a suite at a remote
+   * host.
+   */
+  testIgnore: "**/live/**",
   // Raises rate limits through the product's own override setting so the suite
   // does not spend its run being throttled by the limiter it shares with prod.
   globalSetup: "./e2e/global-setup.ts",
@@ -52,6 +60,23 @@ export default defineConfig({
       use: { ...devices["Pixel 7"] },
       // Mobile only runs the journeys where layout genuinely differs.
       testMatch: /(mobile|accessibility)\.spec\.ts/,
+    },
+    /*
+     * WebKit, for the engine Safari actually uses.
+     *
+     * Scoped to the journeys where engine differences bite rather than the
+     * whole suite, because the whole suite in a second engine roughly doubles
+     * CI time for very little added signal. What IS worth running twice:
+     * anything touching cookies and session lifetime — Safari's ITP caps
+     * script-writable cookie lifetime and is stricter about SameSite and
+     * third-party contexts than Chrome, so a session bug can exist in exactly
+     * one engine — plus the multi-tab and back/forward-cache behaviour, where
+     * WebKit's page cache genuinely differs.
+     */
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+      testMatch: /(auth|account-erasure|browser-sessions)\.spec\.ts/,
     },
   ],
 

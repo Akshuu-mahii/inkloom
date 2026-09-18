@@ -83,6 +83,18 @@ describe("percentiles from merged buckets", () => {
     expect(percentileFrom({ "100": 10 }, 0.99)).toBe(100);
   });
 
+  /*
+   * The unit error this guard exists for. A caller passing 50 instead of 0.5
+   * used to get -1 back for every percentile, which reads as "catastrophically
+   * slow" rather than "you called this wrong".
+   */
+  it("refuses a percentile expressed as 50 instead of 0.5", () => {
+    expect(() => percentileFrom({ "5": 10 }, 50)).toThrow(/fraction between 0 and 1/);
+    expect(() => percentileFrom({ "5": 10 }, 95)).toThrow(RangeError);
+    expect(() => percentileFrom({ "5": 10 }, 0)).toThrow(RangeError);
+    expect(() => percentileFrom({ "5": 10 }, -1)).toThrow(RangeError);
+  });
+
   it("returns -1 when the tail runs past the last bucket", () => {
     expect(percentileFrom({ "5": 1, inf: 99 }, 0.95)).toBe(-1);
   });

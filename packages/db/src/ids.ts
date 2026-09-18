@@ -51,6 +51,7 @@ export const ID_PREFIXES = {
   requestMetric: "rqm",
   dailyMetric: "dmx",
   providerMetric: "pvm",
+  jobRun: "job",
 } as const;
 
 export type IdPrefix = (typeof ID_PREFIXES)[keyof typeof ID_PREFIXES];

@@ -36,6 +36,13 @@ import {
   normalizeCode,
 } from "@inkloom/core/access-codes";
 import { FEATURE_FLAGS, SYSTEM_SETTINGS } from "@inkloom/core/settings";
+import {
+  BACKUP_JOB,
+  JOB_MAX_AGE_HOURS,
+  jobHealth,
+  RESTORE_TEST_JOB,
+  RETENTION_JOB,
+} from "@inkloom/core/retention";
 import { templates } from "@inkloom/email";
 import type { Env } from "../context";
 import { apiError, ok, paged } from "../lib/response";
@@ -111,7 +118,7 @@ adminRoutes.get("/overview", requirePermission("admin.overview.read"), async (c)
   const row = stats.rows[0] ?? {};
   const n = (key: string) => Number(row[key] ?? 0);
 
-  const [byCampaign, recentSecurity, recentAdmin, funnel] = await Promise.all([
+  const [byCampaign, recentSecurity, recentAdmin, funnel, jobs] = await Promise.all([
     db
       .select({
         campaignId: accessCodeCampaign.id,
@@ -128,16 +135,67 @@ adminRoutes.get("/overview", requirePermission("admin.overview.read"), async (c)
       limit: 10,
     }),
     db.query.auditEvent.findMany({ orderBy: [desc(auditEvent.createdAt)], limit: 10 }),
-    // The GTM funnel the brief asks for, computed from first-party events.
+    /*
+     * The GTM funnel the brief asks for, computed from first-party events.
+     *
+     * `signup_started` counts DISTINCT people, like `visitors` above it. It used
+     * to count EVENTS, so one person who opened the signup form five times
+     * appeared as five, and the console drew "Signup started · 500%" — a funnel
+     * stage five times wider than the funnel containing it.
+     *
+     * Note the first two steps are consent-gated analytics while the rest are
+     * counted from real tables, so the steps are NOT nested subsets and a later
+     * stage can legitimately exceed an earlier one. The Funnel component says so
+     * rather than drawing an impossible bar.
+     */
     db.execute<Record<string, string>>(sql`
       SELECT
         (SELECT COUNT(DISTINCT anonymous_id) FROM analytics_events WHERE name = 'landing_viewed')  AS visitors,
-        (SELECT COUNT(*) FROM analytics_events WHERE name = 'signup_started')                      AS signup_started,
+        (SELECT COUNT(DISTINCT anonymous_id) FROM analytics_events WHERE name = 'signup_started') AS signup_started,
         (SELECT COUNT(*) FROM users)                                                               AS signup_completed,
         (SELECT COUNT(*) FROM users WHERE email_verified = true)                                   AS email_verified,
         (SELECT COUNT(DISTINCT user_id) FROM access_code_redemptions)                              AS code_redeemed,
         (SELECT COUNT(DISTINCT user_id) FROM analytics_events WHERE name = 'dashboard_viewed')     AS dashboard_activated
     `),
+    /*
+     * Is the retention sweep still running?
+     *
+     * The periods published at /privacy are only kept if this job runs, and
+     * until `job_runs` existed a job that silently stopped looked exactly like
+     * a job with nothing to delete. Surfaced on the page an operator already
+     * watches, and folded into `operations.status` below so it can page someone
+     * rather than waiting to be noticed.
+     */
+    /*
+     * Every scheduled job's health, in one place.
+     *
+     * Retention keeps the promises made at /privacy; the backup is the only
+     * thing standing between a bad hour and permanent data loss; the restore
+     * test is what stops the backup silently becoming unusable. All three fail
+     * the same way — by quietly not running — so all three are read the same
+     * way, from the age of their newest row.
+     *
+     * Degrade, never take the page down. This is one panel on a dashboard an
+     * operator reaches for when something is already wrong, so it must not be
+     * able to 500 the whole overview — as it did the first time it shipped,
+     * against a database where the migration had not yet run. The fallback
+     * still reports UNHEALTHY rather than pretending everything is fine.
+     */
+    Promise.all(
+      [RETENTION_JOB, BACKUP_JOB, RESTORE_TEST_JOB].map((job) =>
+        jobHealth(db, job, JOB_MAX_AGE_HOURS[job]).catch((error: unknown) => {
+          c.get("services").logger.error("job_health_unavailable", { job, error });
+          return {
+            job,
+            healthy: false,
+            lastRunAt: null,
+            lastStatus: "unknown",
+            ageHours: null,
+            removedLastRun: null,
+          };
+        }),
+      ),
+    ),
   ]);
 
   const f = funnel.rows[0] ?? {};
@@ -166,8 +224,32 @@ adminRoutes.get("/overview", requirePermission("admin.overview.read"), async (c)
       emailFailures: n("email_failures"),
       openSupport: n("open_support"),
       criticalSecurityEvents: n("critical_events"),
-      status: n("critical_events") > 0 || n("email_failures") > 10 ? "degraded" : "healthy",
+      status:
+        n("critical_events") > 0 || n("email_failures") > 10 || jobs.some((j) => !j.healthy)
+          ? "degraded"
+          : "healthy",
     },
+    /*
+     * Scheduled jobs, reported by evidence rather than by configuration.
+     *
+     * `healthy: false` with `lastRunAt: null` is the important case: it means
+     * no run has ever been recorded, which covers a cron that was never
+     * configured, a deployment that dropped the trigger, and a worker that has
+     * never been deployed at all — states that otherwise look identical to a
+     * quiet, well-behaved job.
+     */
+    jobs: Object.fromEntries(
+      jobs.map((j) => [
+        j.job,
+        {
+          healthy: j.healthy,
+          lastRunAt: j.lastRunAt,
+          lastStatus: j.lastStatus,
+          ageHours: j.ageHours,
+          removedLastRun: j.removedLastRun,
+        },
+      ]),
+    ),
     funnel: {
       visitors: Number(f.visitors ?? 0),
       signupStarted: Number(f.signup_started ?? 0),
@@ -255,10 +337,21 @@ adminRoutes.get("/users/:id", requirePermission("users.read"), async (c) => {
   const { db, credits } = c.get("services");
   const userId = c.req.param("id");
 
-  const account = await db.query.user.findFirst({ where: eq(userTable.id, userId) });
-  if (!account) throw apiError("NOT_FOUND");
-
-  const [wallet, ledger, redemptions, sessions, events, notes] = await Promise.all([
+  /*
+   * The existence check runs WITH the rest, not before it.
+   *
+   * `account` was awaited on its own and every query below keys on `userId`
+   * from the path — not on anything the account row returns. So it was a guard
+   * costing a full round trip in front of six more, on the page an operator
+   * opens for every support conversation.
+   *
+   * Running it in the same batch means a request for a user that does not exist
+   * does six queries it did not need. That is the rare path — an operator
+   * following a link from the console — and it still answers 404. The common
+   * path loses a round trip.
+   */
+  const [account, wallet, ledger, redemptions, sessions, events, notes] = await Promise.all([
+    db.query.user.findFirst({ where: eq(userTable.id, userId) }),
     credits.getBalance(userId),
     db.query.creditLedger.findMany({
       where: eq(creditLedger.userId, userId),
@@ -290,6 +383,8 @@ adminRoutes.get("/users/:id", requirePermission("users.read"), async (c) => {
       limit: 50,
     }),
   ]);
+
+  if (!account) throw apiError("NOT_FOUND");
 
   /**
    * Explicit field selection, not a row spread.
@@ -1538,7 +1633,23 @@ adminRoutes.get("/insights", requirePermission("admin.overview.read"), async (c)
         (SELECT COUNT(*) FROM email_events
           WHERE status IN ('failed','bounced') AND created_at >= CURRENT_DATE)              AS emails_failed,
         (SELECT COALESCE(SUM(requests),0) FROM request_metrics WHERE day = CURRENT_DATE)    AS requests,
-        (SELECT COALESCE(SUM(status_5xx),0) FROM request_metrics WHERE day = CURRENT_DATE)  AS errors
+        (SELECT COALESCE(SUM(status_5xx),0) FROM request_metrics WHERE day = CURRENT_DATE)  AS errors,
+        /*
+         * Infrastructure, measured NOW rather than read from last night.
+         *
+         * These sit under a heading that says "Right now", and they used to come
+         * from the roll-up like everything else — so the console showed "0 users"
+         * for a day after the first person signed up, beside a storage figure
+         * that was equally stale but looked plausible. A number that is wrong for
+         * up to 24 hours under a heading promising the present is worse than no
+         * number: it is one nobody can act on and everybody believes.
+         *
+         * All three are cheap: two catalogue lookups and a count on a table this
+         * console already reads.
+         */
+        (SELECT COUNT(*) FROM users)                                                        AS users_total,
+        pg_database_size(current_database())                                                AS database_bytes,
+        (SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database())          AS connections
     `),
 
     // Latest reading per provider metric. DISTINCT ON keeps one row each.
@@ -1565,6 +1676,12 @@ adminRoutes.get("/insights", requirePermission("admin.overview.read"), async (c)
       emailsFailed: n("emails_failed"),
       requests: n("requests"),
       errors: n("errors"),
+    },
+    /** Measured at request time. Distinct from `daily`, which ends yesterday. */
+    now: {
+      usersTotal: n("users_total"),
+      databaseBytes: n("database_bytes"),
+      connections: n("connections"),
     },
     providers: providers.rows,
   });

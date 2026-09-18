@@ -9,6 +9,7 @@
 import type { MiddlewareHandler } from "hono";
 import type { RateLimitBucket } from "@inkloom/core/rate-limit";
 import { apiError, errorResponse } from "../lib/response";
+import { defer } from "../lib/defer";
 import type { Env } from "../context";
 
 export type SubjectResolver = (c: Parameters<MiddlewareHandler<Env>>[0]) => string | null;
@@ -35,6 +36,30 @@ export interface LimitSpec {
   subject: SubjectResolver;
 }
 
+/** Methods that cannot change state, and so are not worth charging. */
+const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/**
+ * A per-user ceiling on authenticated writes.
+ *
+ * The per-endpoint buckets above bound the flows that are worth attacking one
+ * at a time — redeeming a code, submitting support, resending a verification.
+ * None of them bounds a session in aggregate, so an authenticated client could
+ * spray writes across many endpoints and stay under every individual limit
+ * while still hammering the database. This is the aggregate limit: 120 writes
+ * per user per minute, roughly twenty times what a person clicking through the
+ * UI generates, so it is invisible in normal use and only ever catches a script.
+ *
+ * Deliberately NOT applied to unauthenticated writes. Signup, login and
+ * forgot-password have no principal to key on, and each already carries its own
+ * per-email and per-network budget; keying those on IP here would double-charge
+ * a shared NAT for no gain.
+ */
+export const writeRateLimit: MiddlewareHandler<Env> = async (c, next) => {
+  if (READ_METHODS.has(c.req.method) || !c.get("principal")) return next();
+  return rateLimit({ bucket: "api.write.user", subject: bySubjectUser })(c, next);
+};
+
 /**
  * Apply one or more limits. All are consumed, then the verdict is taken, so a
  * request that trips the account limit still counts against the network limit
@@ -55,14 +80,18 @@ export function rateLimit(...specs: LimitSpec[]): MiddlewareHandler<Env> {
     const blocked = results.find((r) => r && !r.result.allowed);
 
     if (blocked) {
-      await audit.security({
+      await defer(
+        c,
+        audit.security({
         type: "rate_limit_exceeded",
         severity: "warning",
         userId: c.get("principal")?.userId ?? null,
         ipHash: c.get("ipHash"),
         requestId: c.get("requestId"),
         metadata: { bucket: blocked.spec.bucket, path: new URL(c.req.url).pathname },
-      });
+        }),
+        "rate_limit_exceeded",
+      );
       return errorResponse(c, apiError("RATE_LIMITED", { retryAfter: blocked.result.retryAfter }));
     }
 

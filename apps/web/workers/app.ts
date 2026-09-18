@@ -28,7 +28,7 @@ import { createRequestHandler, RouterContextProvider } from "react-router";
 import { buildServices, createApiApp } from "@inkloom/api";
 import { createDb } from "@inkloom/db/client";
 import { generateNonce, securityHeaders } from "@inkloom/core/security";
-import { runRetentionSweep } from "@inkloom/core/retention";
+import { recordJobRun, RETENTION_JOB, runRetentionSweep } from "@inkloom/core/retention";
 import {
   captureSelfMeasuredUsage,
   flushIfDue,
@@ -37,6 +37,7 @@ import {
   routeGroupFor,
 } from "@inkloom/core/telemetry";
 import { nonceContext, servicesContext } from "../app/lib/context";
+import { runWithApiDispatch } from "../app/lib/api-dispatch.server";
 
 interface WorkerEnv {
   /** Hyperdrive binding. Presents an ordinary Postgres connection string. */
@@ -50,8 +51,6 @@ const requestHandler = createRequestHandler(
   import.meta.env.MODE,
 );
 
-/** Pages that render the Turnstile widget, and so need its script and frame. */
-const TURNSTILE_PATHS = ["/auth/signup", "/auth/login", "/auth/forgot-password", "/contact"];
 /**
  * Authenticated areas, which no shared cache may hold.
  *
@@ -132,6 +131,44 @@ export default {
      * Telemetry would simply have been empty forever, which is the kind of bug
      * that is only noticed months later when someone asks for a graph.
      */
+    /*
+     * Background work started by a route, which must finish before the pool does.
+     *
+     * Handlers defer observational writes — security events, the "you already
+     * have an account" notice — with `waitUntil`. Those keep the ISOLATE alive,
+     * which is what `waitUntil` is for, but they say nothing about the database
+     * CLIENT, and this request owns a client it is about to close.
+     *
+     * That race was real and it was silent. In production `flushIfDue` almost
+     * always has nothing to flush and resolves at once, so `pool.end()` ran
+     * within a tick of the response. A deferred single INSERT usually beat it;
+     * a deferred SELECT-then-send-then-INSERT never did. The symptom was a
+     * duplicate signup that recorded its security event and sent no email —
+     * half the side effects landing, with no error anywhere, because both
+     * failures were swallowed by design.
+     *
+     * Collecting them here and closing the pool only once they have all settled
+     * is the fix. `waitUntil` is still called on each, so the isolate outlives
+     * the response either way.
+     */
+    const deferred: Array<Promise<unknown>> = [];
+    /*
+     * Spread from the real one so every field the runtime adds — exports,
+     * props, tracing, abort — comes along, and only `waitUntil` is intercepted.
+     * Enumerating them by hand would break on the next runtime version.
+     */
+    const apiCtx: ExecutionContext = {
+      ...ctx,
+      passThroughOnException: () => ctx.passThroughOnException(),
+      waitUntil(promise) {
+        // Never let a rejection escape: these are side effects whose failure
+        // must not turn a served request into an error.
+        const settled = Promise.resolve(promise).catch(() => {});
+        deferred.push(settled);
+        ctx.waitUntil(settled);
+      },
+    };
+
     const finish = (status: number, errorCode?: string | null) => {
       recordRequest(
         {
@@ -144,9 +181,10 @@ export default {
       );
 
       ctx.waitUntil(
-        // Eager in development only: the dev server re-evaluates modules per
-        // request, so nothing would ever accumulate long enough to flush.
-        flushIfDue(db, services.logger, services.config.INKLOOM_ENV === "development")
+        Promise.allSettled(deferred)
+          // Eager in development only: the dev server re-evaluates modules per
+          // request, so nothing would ever accumulate long enough to flush.
+          .then(() => flushIfDue(db, services.logger, services.config.INKLOOM_ENV === "development"))
           .catch(() => {})
           .finally(() => pool.end().catch(() => {})),
       );
@@ -155,7 +193,7 @@ export default {
     // --- API ---------------------------------------------------------------
     // Returns JSON, sets its own headers, and must not receive the document CSP.
     if (url.pathname.startsWith("/api/")) {
-      const apiResponse = await createApiApp(services).fetch(request, env, ctx);
+      const apiResponse = await createApiApp(services).fetch(request, env, apiCtx);
       /*
        * The typed code from the error envelope, when there is one.
        *
@@ -203,7 +241,23 @@ export default {
     context.set(servicesContext, services);
     context.set(nonceContext, nonce);
 
-    const response = await requestHandler(request, context);
+    /*
+     * Loaders and actions call the API in-process, not over the network.
+     *
+     * A Worker cannot fetch its own hostname: the subrequest is not routed back
+     * into the Worker but into the asset handler, which returns an empty 404
+     * that the caller cannot parse as JSON. Vite's dev server does loop back,
+     * so this was invisible locally and broke every data path once deployed.
+     *
+     * The app is built lazily and memoised for the life of the request, so a
+     * document making no API calls builds nothing, and one making five builds
+     * it once.
+     */
+    let apiApp: ReturnType<typeof createApiApp> | undefined;
+    const response = await runWithApiDispatch(
+      async (apiRequest) => (apiApp ??= createApiApp(services)).fetch(apiRequest, env, apiCtx),
+      () => requestHandler(request, context),
+    );
     /**
      * Safe here even though SSR streams: React Router resolves every loader
      * before rendering begins, and no route defers data with `Await`, so all
@@ -214,8 +268,10 @@ export default {
     const headers = securityHeaders({
       nonce,
       isProduction: services.config.isProduction,
+      // The transport, not the environment: staging is HTTPS and must rehearse
+      // the same CSP and HSTS production will run.
+      isSecureTransport: url.protocol === "https:",
       connectSrc: services.config.SENTRY_DSN ? [originOf(services.config.SENTRY_DSN)] : [],
-      allowTurnstile: TURNSTILE_PATHS.some((path) => url.pathname.startsWith(path)),
     });
 
     for (const [key, value] of Object.entries(headers)) {
@@ -254,6 +310,7 @@ export default {
     const { db, pool } = connect(env);
     const services = buildServices({ db, env: env as Record<string, unknown> });
     const logger = services.logger.child({ cron: event.cron });
+    const startedAt = Date.now();
 
     try {
       /*
@@ -296,6 +353,25 @@ export default {
     } catch (error) {
       logger.error("retention_sweep_failed", { error });
       services.monitoring.captureException(error, { extra: { cron: event.cron } });
+
+      /*
+       * Record the failure durably before rethrowing.
+       *
+       * Staleness alone would eventually catch this, but only after the job
+       * had been missing for a day — and it could not say WHY. A `failed` row
+       * names the error at the moment it happened. Best-effort: if the
+       * database is what broke, this insert cannot work either, and staleness
+       * is the backstop that does not depend on anything working.
+       */
+      await recordJobRun(db, {
+        job: RETENTION_JOB,
+        startedAt: new Date(startedAt),
+        finishedAt: new Date(),
+        status: "failed",
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      }).catch(() => {});
+
       throw error;
     } finally {
       ctx.waitUntil(pool.end().catch(() => {}));

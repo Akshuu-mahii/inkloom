@@ -7,7 +7,7 @@
  * Ordering matters and is deliberate:
  *
  *   1. Claim the idempotency key       (blocks a double-submit immediately)
- *   2. Lock the campaign row FOR UPDATE (serialises every redeemer of this code)
+ *   2. Read the campaign, locking it FOR UPDATE only if it has a seat cap
  *   3. Re-read campaign state under the lock
  *   4. Check window, status, global cap
  *   5. Check this user's prior redemptions
@@ -17,11 +17,17 @@
  *   9. Write the audit event
  *  10. Commit
  *
- * Because every redeemer of a given code contends on the same campaign row,
- * step 2 turns concurrent redemption into a queue. Step 6 then catches any
- * scenario the application logic somehow missed. Both are proven by
- * `redemption.concurrency.test.ts`, which fires N simultaneous requests and
- * asserts exactly one redemption and exactly one ledger entry exist.
+ * A CAPPED campaign still turns concurrent redemption into a queue at step 2,
+ * because "is there a seat left" is a read-then-write that two transactions
+ * could otherwise both win. An UNCAPPED one does not lock the campaign at all:
+ * there is no shared quantity to race over, and steps 1 and 6 already stop a
+ * user redeeming twice. That distinction is worth roughly an order of magnitude
+ * under load — see the note at step 2.
+ *
+ * Step 6 catches any scenario the application logic somehow missed. All of it is
+ * proven by `redemption.concurrency.test.ts`, which fires N simultaneous
+ * requests at both a capped and an uncapped campaign and asserts the ledger
+ * comes out exactly right.
  */
 import { eq, sql } from "drizzle-orm";
 import type { Database } from "@inkloom/db/client";
@@ -126,16 +132,54 @@ export class RedemptionService {
           requestHash: fingerprint,
         });
 
-        // --- 2/3. Lock the campaign row and re-read it under the lock ------
-        // Every concurrent redeemer of this code queues here.
-        const locked = await tx.execute<CampaignRow>(sql`
+        /*
+         * --- 2/3. Read the campaign, locking it ONLY when there is a global
+         * cap to defend.
+         *
+         * This was an unconditional `FOR UPDATE`, so every redeemer of a code
+         * queued behind every other one — and the row lock is held until COMMIT,
+         * which means the queue covers the wallet update, the ledger insert and
+         * the audit write too. Measured with 1,000 bots redeeming one code at 50
+         * concurrent: p50 4,793ms, p95 7,735ms, and one request killed at
+         * 15,101ms when it hit the statement timeout waiting for the lock. A
+         * promo code posted to a few hundred people would have done that to real
+         * users.
+         *
+         * The lock only ever existed for `max_total_redemptions`: "are there
+         * seats left" is a read-then-write that two transactions could otherwise
+         * both win. Nothing else in this transaction needs it —
+         *
+         *   - the idempotency key (step 1) stops a double submit
+         *   - the unique index on (campaign_id, user_id, slot) at step 6 is the
+         *     real backstop for per-user limits, and is what the 25-way
+         *     same-user concurrency test actually proves
+         *   - the wallet takes its own FOR UPDATE in the ledger (step 7)
+         *   - the counter at step 8 is an atomic `+ 1`, not a read-then-write
+         *
+         * So an UNCAPPED campaign — the common case for a promotional code —
+         * now runs with no campaign-level serialisation at all, while a capped
+         * one keeps exactly the guarantee it had. Lock order is unchanged:
+         * campaign before wallet, never the reverse.
+         */
+        const peek = await tx.execute<CampaignRow>(sql`
           SELECT id, name, status, credit_amount, max_total_redemptions,
                  max_redemptions_per_user, starts_at, expires_at,
                  allowed_email_domains, redemption_count, target_cohort
           FROM access_code_campaigns
           WHERE code_fingerprint = ${fingerprint}
-          FOR UPDATE
         `);
+
+        const needsSeatLock = peek.rows[0]?.max_total_redemptions != null;
+        const locked = needsSeatLock
+          ? await tx.execute<CampaignRow>(sql`
+              SELECT id, name, status, credit_amount, max_total_redemptions,
+                     max_redemptions_per_user, starts_at, expires_at,
+                     allowed_email_domains, redemption_count, target_cohort
+              FROM access_code_campaigns
+              WHERE code_fingerprint = ${fingerprint}
+              FOR UPDATE
+            `)
+          : peek;
 
         const campaign = locked.rows[0];
         if (!campaign) {
@@ -276,6 +320,20 @@ export class RedemptionService {
     userId: string,
     fingerprint: string,
   ): Promise<RedeemSuccess | null> {
+    /*
+     * Ordered by created_at.
+     *
+     * This said ORDER BY r.redeemed_at, and no such column exists — so the
+     * query raised SQLSTATE 42703 (undefined column) every time it ran, turning
+     * "you have already redeemed this" into a 500.
+     *
+     * It survived because it was almost unreachable. The campaign lock
+     * serialised redeemers, so a duplicate was caught by the per-user check
+     * several steps earlier and this replay path only ran if two requests got
+     * past that check together. Dropping the lock for uncapped campaigns made it
+     * the ORDINARY duplicate path and the 25-way concurrency test failed at
+     * once: a latent bug found by removing the thing that was hiding it.
+     */
     const found = await this.db.execute<{
       redemption_id: string;
       campaign_id: string;
@@ -290,7 +348,7 @@ export class RedemptionService {
       JOIN access_code_campaigns c ON c.id = r.campaign_id
       LEFT JOIN credit_wallets w ON w.user_id = r.user_id
       WHERE r.user_id = ${userId} AND c.code_fingerprint = ${fingerprint}
-      ORDER BY r.redeemed_at DESC
+      ORDER BY r.created_at DESC
       LIMIT 1
     `);
 

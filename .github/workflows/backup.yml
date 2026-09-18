@@ -54,7 +54,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with: { version: 11 }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
@@ -136,7 +135,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with: { version: 11 }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
@@ -164,9 +162,19 @@ jobs:
                        | sort_by(.created_at) | reverse | .[0].id // empty')
 
           if [ -z "$id" ]; then
-            echo "::error title=No stored backup::No unexpired backup-staging-* artifact exists. \
-            Either the nightly backup has never succeeded, or every archive has expired. \
-            Treat this as a backup outage, not a flaky test."
+            runs=$(gh api "repos/${{ github.repository }}/actions/workflows/backup.yml/runs?status=success&per_page=1" \
+                     --jq '.total_count // 0')
+
+            if [ "$runs" = "0" ]; then
+              echo "::error title=No backup has run yet::There is nothing stored to restore, because \
+              the backup job has never completed successfully. This is the first-run case, not an \
+              outage: run this workflow once with 'Run the restore test' UNCHECKED to take and store \
+              a backup, then run it again with the box checked."
+            else
+              echo "::error title=No stored backup::Backups have succeeded before, but no unexpired \
+              backup-staging-* artifact exists now. Either every archive has expired (retention is 30 \
+              days) or they were deleted. Treat this as a backup outage."
+            fi
             exit 1
           fi
 

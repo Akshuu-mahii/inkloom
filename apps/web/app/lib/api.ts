@@ -12,6 +12,7 @@
  * `__Host-inkloom_session` cookie, which is HttpOnly — JavaScript cannot see
  * it, and nothing is kept in localStorage.
  */
+import { currentApiDispatch } from "./api-dispatch.server";
 
 export interface ApiError {
   code: string;
@@ -118,14 +119,30 @@ export async function call<T>(path: string, options: CallOptions = {}): Promise<
     if (requestId) headers.set("x-request-id", requestId);
   }
 
-  const response = await fetch(url, {
+  const init: RequestInit = {
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
     // Same-origin only. There is no cross-origin API to talk to.
     credentials: "same-origin",
     signal,
-  });
+  };
+
+  /*
+   * Inside the Worker, hand the request to the API app directly.
+   *
+   * A Worker's subrequest to its own hostname is NOT routed back into the
+   * Worker — it reaches the asset handler, misses, and returns an empty 404
+   * that `response.json()` cannot parse. That is invisible in development,
+   * where Vite's dev server does loop back, so this path was broken on every
+   * deployed environment and correct on every local one.
+   *
+   * The fallback is a real fetch, which is right everywhere there is no Worker:
+   * the dev server, the test suite, and any client-side use.
+   * See api-dispatch.server.ts.
+   */
+  const dispatch = currentApiDispatch();
+  const response = dispatch ? await dispatch(new Request(url, init)) : await fetch(url, init);
 
   const payload = (await response.json().catch(() => ({
     data: null,

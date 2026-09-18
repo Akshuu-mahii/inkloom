@@ -21,3 +21,8 @@ openapi.json
 # Local mail relay: holds an SMTP password and machine-specific compose bits.
 .mailpit/
 compose.override.yaml
+
+# Database backups. These contain every row of personal data the system holds,
+# so they must never be committed. CI keeps them as expiring artifacts instead.
+backups/
+*.sql.gz

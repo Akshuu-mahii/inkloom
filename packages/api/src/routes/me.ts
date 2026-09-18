@@ -7,7 +7,7 @@
  * the URL) has no surface to attack.
  */
 import { Hono } from "hono";
-import { and, desc, eq, isNull, lt } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
 import {
   accessCodeRedemption,
   account as accountTable,
@@ -21,15 +21,23 @@ import {
   user as userTable,
   userConsent,
 } from "@inkloom/db";
-import { displayDeviceLabel } from "@inkloom/core/auth";
+import { displayDeviceLabel, sessionCookieName } from "@inkloom/core/auth";
 import { templates } from "@inkloom/email";
 import type { Env } from "../context";
 import { apiError, ok, paged } from "../lib/response";
 import { body, query, validateBody, validateQuery } from "../middleware/validate";
 import { passesOwnerGate, requireAuth } from "../middleware/auth";
 import { isAdminRole } from "@inkloom/core/rbac";
+import { anonymiseAccount } from "@inkloom/core/privacy";
+import { verifyPassword } from "better-auth/crypto";
+import { defer } from "../lib/defer";
 import { rateLimit, bySubjectUser } from "../middleware/rate-limit";
-import { notificationPreferencesSchema, paginationSchema, updateMeSchema } from "../schemas/index";
+import {
+  deleteAccountSchema,
+  notificationPreferencesSchema,
+  paginationSchema,
+  updateMeSchema,
+} from "../schemas/index";
 
 export const meRoutes = new Hono<Env>();
 
@@ -42,32 +50,78 @@ meRoutes.get("/", async (c) => {
   const principal = c.get("principal")!;
   const { db, credits, settings, config } = c.get("services");
 
-  const [profile, prefs, wallet, redemptionCount] = await Promise.all([
-    db.query.profile.findFirst({ where: eq(profileTable.userId, principal.userId) }),
-    db.query.notificationPreference.findFirst({
-      where: eq(notificationPreference.userId, principal.userId),
-    }),
-    credits.getBalance(principal.userId),
-    db.$count(accessCodeRedemption, eq(accessCodeRedemption.userId, principal.userId)),
-  ]);
+  /*
+   * One query for everything the dashboard displays.
+   *
+   * This endpoint is the layout loader, so it runs on EVERY navigation inside
+   * the signed-in app. It used to cost six separate statements — profile,
+   * notification preferences, wallet, redemption count, the user row, and the
+   * linked accounts — on top of the three the authorization middleware already
+   * spends. Nine statements to render a page header.
+   *
+   * Every one of those six is keyed on the same user id and none of them reads
+   * another's result, so they are one query with joins. The count and the
+   * provider list are scalar subqueries because they are aggregates, not rows.
+   *
+   * What is deliberately NOT folded in: the three authorization statements.
+   * Those re-read the session and the user on every request so that a
+   * revocation, a suspension, an emergency logout or a role removal takes effect
+   * immediately, and they stay exactly as they were.
+   *
+   * `provider_id` and a boolean leave the server; the password hash is reduced
+   * to `IS NOT NULL` inside the database and never travels.
+   */
+  const snapshot = await db.execute<{
+    created_at: Date;
+    early_access_joined_at: Date | null;
+    display_name: string | null;
+    company: string | null;
+    timezone: string | null;
+    product_updates_email: boolean | null;
+    marketing_email: boolean | null;
+    credits_email: boolean | null;
+    wallet_balance: number | null;
+    redemption_count: number;
+    providers: string[] | null;
+    has_password: boolean;
+  }>(sql`
+    SELECT
+      u.created_at,
+      u.early_access_joined_at,
+      p.display_name,
+      p.company,
+      p.timezone,
+      np.product_updates_email,
+      np.marketing_email,
+      np.credits_email,
+      w.balance AS wallet_balance,
+      (SELECT COUNT(*)::int FROM access_code_redemptions r WHERE r.user_id = u.id)
+        AS redemption_count,
+      (SELECT COALESCE(ARRAY_AGG(a.provider_id), '{}') FROM accounts a WHERE a.user_id = u.id)
+        AS providers,
+      EXISTS (SELECT 1 FROM accounts a WHERE a.user_id = u.id AND a.password IS NOT NULL)
+        AS has_password
+    FROM users u
+    LEFT JOIN profiles p                  ON p.user_id  = u.id
+    LEFT JOIN notification_preferences np ON np.user_id = u.id
+    LEFT JOIN credit_wallets w            ON w.user_id  = u.id
+    WHERE u.id = ${principal.userId}
+  `);
 
-  const account = await db.query.user.findFirst({ where: eq(userTable.id, principal.userId) });
+  const row = snapshot.rows[0];
+  if (!row) throw apiError("NOT_FOUND");
 
   /*
-   * Whether this account has a password at all.
+   * A missing wallet is created, not assumed to be zero.
    *
-   * Someone who signed up with Google has no credential row, so change-password
-   * and two-factor — both of which ask for the current password — cannot work
-   * for them. The dashboard needs to know that to offer "set a
-   * password" instead of a form that can only fail. The linked providers are
-   * returned for the same reason.
-   *
-   * Only the provider NAMES and a boolean leave the server. Never the hash.
+   * `getBalance` inserts one on first read, so the join above cannot replace it
+   * outright — but it only has to run for an account that has never had a
+   * wallet, which is a once-per-user event rather than a once-per-navigation
+   * one. The common path stays at a single query.
    */
-  const linked = await db
-    .select({ providerId: accountTable.providerId, password: accountTable.password })
-    .from(accountTable)
-    .where(eq(accountTable.userId, principal.userId));
+  const balance =
+    row.wallet_balance ?? (await credits.getBalance(principal.userId)).balance;
+
 
   return ok(c, {
     // Note what is NOT here: no password hash, no session token, no internal
@@ -104,25 +158,25 @@ meRoutes.get("/", async (c) => {
      * the identical restricted screen, so there is no oracle.
      */
     canAccessAdmin: isAdminRole(principal.role) && passesOwnerGate(principal, config.OWNER_EMAIL),
-    hasPassword: linked.some((row) => row.password !== null),
-    providers: linked.map((row) => row.providerId),
-    createdAt: account?.createdAt ?? null,
+    hasPassword: row.has_password,
+    providers: row.providers ?? [],
+    createdAt: row.created_at,
     earlyAccess: {
-      joined: Boolean(account?.earlyAccessJoinedAt),
-      joinedAt: account?.earlyAccessJoinedAt ?? null,
+      joined: Boolean(row.early_access_joined_at),
+      joinedAt: row.early_access_joined_at,
     },
     profile: {
-      displayName: profile?.displayName ?? principal.name,
-      company: profile?.company ?? null,
-      timezone: profile?.timezone ?? null,
+      displayName: row.display_name ?? principal.name,
+      company: row.company,
+      timezone: row.timezone,
     },
-    credits: { balance: wallet.balance },
-    redemptions: redemptionCount,
+    credits: { balance },
+    redemptions: row.redemption_count,
     notificationPreferences: {
       securityEmail: true,
-      productUpdatesEmail: prefs?.productUpdatesEmail ?? true,
-      marketingEmail: prefs?.marketingEmail ?? false,
-      creditsEmail: prefs?.creditsEmail ?? true,
+      productUpdatesEmail: row.product_updates_email ?? true,
+      marketingEmail: row.marketing_email ?? false,
+      creditsEmail: row.credits_email ?? true,
     },
     platform: {
       // Feature flags are resolved server-side and sent as plain booleans. The
@@ -344,7 +398,7 @@ meRoutes.patch(
 // ---------------------------------------------------------------------------
 meRoutes.post(
   "/export",
-  rateLimit({ bucket: "support.submit.user", subject: bySubjectUser }),
+  rateLimit({ bucket: "data.export.user", subject: bySubjectUser }),
   async (c) => {
     const principal = c.get("principal")!;
     const { db, mailer, config, audit } = c.get("services");
@@ -450,3 +504,112 @@ meRoutes.post(
     return ok(c, { exportId, status: "ready", data: payload });
   },
 );
+
+// ---------------------------------------------------------------------------
+// DELETE /me  — erase this account
+// ---------------------------------------------------------------------------
+/**
+ * Self-service erasure.
+ *
+ * The account becomes a tombstone rather than a deleted row: the append-only
+ * audit trail and credit ledger reference this user id and cannot be rewritten,
+ * so the id survives while everything identifying about it is destroyed. See
+ * `@inkloom/core/privacy` for what is erased and what deliberately is not.
+ *
+ * Two guards, for two different failure modes:
+ *
+ *   - The PASSWORD, verified here rather than trusted from the session, so a
+ *     borrowed laptop with a live session cannot destroy an account.
+ *   - The LAST OWNER check, so nobody can lock the whole organisation out of
+ *     its own admin console by erasing the only account that can reach it.
+ *     Bootstrapping a new super-admin requires an existing verified account,
+ *     so this is not recoverable from inside the product.
+ */
+meRoutes.delete("/", validateBody(deleteAccountSchema), async (c) => {
+  const principal = c.get("principal")!;
+  const { db, audit, logger } = c.get("services");
+  const input = body<{ currentPassword: string }>(c);
+
+  const credential = await db.query.account.findFirst({
+    where: and(eq(accountTable.userId, principal.userId), eq(accountTable.providerId, "credential")),
+  });
+
+  /*
+   * An account with no password — signed up with a social provider — cannot
+   * prove intent this way. Refusing is better than erasing on a session alone;
+   * they set a password first, which the dashboard already supports.
+   */
+  if (!credential?.password) {
+    throw apiError("REAUTH_REQUIRED", {
+      details: { reason: "Set a password before erasing your account." },
+    });
+  }
+
+  const proven = await verifyPassword({
+    hash: credential.password,
+    password: input.currentPassword,
+  }).catch(() => false);
+
+  if (!proven) {
+    await defer(
+      c,
+      audit.security({
+        type: "login_failed",
+        severity: "warning",
+        userId: principal.userId,
+        ipHash: c.get("ipHash"),
+        requestId: c.get("requestId"),
+        metadata: { flow: "account_erasure_wrong_password" },
+      }),
+      "security_event",
+    );
+    throw apiError("INVALID_CREDENTIALS", {
+      details: { currentPassword: "That password doesn't match your current one." },
+    });
+  }
+
+  if (isAdminRole(principal.role as never)) {
+    const others = await db.execute<{ n: string }>(sql`
+      SELECT COUNT(*)::text AS n FROM users
+       WHERE role = 'super_admin' AND status = 'active' AND id <> ${principal.userId}
+    `);
+    if (principal.role === "super_admin" && Number(others.rows[0]?.n ?? 0) === 0) {
+      throw apiError("FORBIDDEN", {
+        details: {
+          reason:
+            "You are the only owner. Promote another owner before erasing this account.",
+        },
+      });
+    }
+  }
+
+  const result = await anonymiseAccount(db, audit, logger, {
+    userId: principal.userId,
+    actorType: "user",
+    actorId: principal.userId,
+    reason: "Self-service account erasure",
+    requestId: c.get("requestId"),
+    ipHash: c.get("ipHash"),
+  });
+
+  /*
+   * Clear the cookie on the way out.
+   *
+   * The session row is already gone, so the cookie is inert either way — but
+   * leaving it set means the browser keeps presenting a credential for an
+   * account that no longer exists, and the next page load looks like a bug
+   * rather than a completed erasure.
+   */
+  const response = ok(c, {
+    erased: true,
+    erasedAt: result.anonymizedAt,
+    message: "Your account has been erased. This cannot be undone.",
+  });
+  response.headers.append(
+    "set-cookie",
+    `${sessionCookieName(c.get("services").config.APP_URL.startsWith("https://"))}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${
+      c.get("services").config.APP_URL.startsWith("https://") ? "; Secure" : ""
+    }`,
+  );
+  return response;
+});

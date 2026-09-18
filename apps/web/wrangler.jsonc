@@ -18,6 +18,35 @@
   "observability": { "enabled": true, "head_sampling_rate": 1 },
 
   /*
+   * Run the Worker near the DATABASE, not near the visitor.
+   *
+   * A signed-in page makes several sequential queries and each one pays the full
+   * round trip between the edge and Neon. Measured on staging with the Worker at
+   * Mumbai and the database in Singapore (~70ms apart): authenticated pages
+   * averaged 837ms, marketing pages 49ms. That gap is round trips, not compute.
+   * Running the Worker beside the database turns N round trips into one.
+   *
+   * A PINNED REGION, not `mode: "smart"`, and that is a measured decision rather
+   * than a preference. Smart mode was deployed first and did nothing: the
+   * response header stayed `cf-placement: local-BOM` and authenticated latency
+   * did not move. Smart Placement needs sustained traffic before it will make a
+   * decision, and this application serves tens of requests an hour — it would
+   * have sat un-relocated indefinitely while appearing to be configured. The
+   * pinned region reported `cf-placement: remote-SIN` on the very next deploy.
+   *
+   * The cost is real and was measured too: public pages went from ~92ms to
+   * ~190ms at p50, because they now pay a hop to Singapore for work that barely
+   * touches the database. That is the trade — it is worth it only while the
+   * signed-in experience dominates, and it should be re-measured if that stops
+   * being true.
+   *
+   * THIS MUST TRACK THE NEON REGION. If the database moves, this becomes
+   * silently wrong: still valid, still deployed, just slow again with nothing to
+   * say why. `cf-placement` in any response header is how to check it.
+   */
+  "placement": { "region": "aws:ap-southeast-1" },
+
+  /*
    * Retention sweep.
    *
    * 03:20 UTC daily — off the hour, because every cron on the platform fires at
@@ -92,14 +121,25 @@
         "EMAIL_REPLY_TO": "support@inkloom.art",
         "SUPPORT_EMAIL": "support@inkloom.art",
         "TURNSTILE_ENABLED": "true",
+        // MUST be repeated here. `env.*.vars` REPLACES the top-level `vars`
+        // block rather than merging into it, so anything omitted falls back to
+        // its schema default — and the default for this one is "", which renders
+        // the widget with an empty sitekey. The form then submits no token while
+        // the server still demands one, breaking signup, login, password reset
+        // and contact all at once, with nothing in the logs but "captcha failed".
+        // loadConfig() now refuses to boot on an empty value for exactly this
+        // reason. This is the "inkloom-staging" widget, scoped to the
+        // staging.inkloom.art hostname only; production has its own.
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAEy5d7NT7jtcSiLg",
         "RATE_LIMIT_ENABLED": "true",
         "ANALYTICS_ENABLED": "true",
         "LOG_LEVEL": "info",
         "SENTRY_ENVIRONMENT": "staging",
+        "INKLOOM_RELEASE": "v1.0.0-staging",
       },
       // A SEPARATE Neon branch from production. Sharing one would put real
       // user data in a test environment.
-      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "REPLACE_WITH_STAGING_HYPERDRIVE_ID" }],
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "94340d8d7b7948ccb8ff1f246790fc60" }],
       // Cron triggers are not inherited from the top-level block.
       "triggers": { "crons": ["20 3 * * *"] },
       "routes": [{ "pattern": "staging.inkloom.art", "custom_domain": true }],
@@ -115,12 +155,16 @@
         "EMAIL_REPLY_TO": "support@inkloom.art",
         "SUPPORT_EMAIL": "support@inkloom.art",
         "TURNSTILE_ENABLED": "true",
+        // See the note in the staging block: this must be repeated per
+        // environment, and an empty value silently breaks every form.
+        "TURNSTILE_SITE_KEY": "",
         "RATE_LIMIT_ENABLED": "true",
         "ANALYTICS_ENABLED": "true",
         "LOG_LEVEL": "info",
         "SENTRY_ENVIRONMENT": "production",
+        "INKLOOM_RELEASE": "v1.0.0",
       },
-      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "REPLACE_WITH_PRODUCTION_HYPERDRIVE_ID" }],
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "4fc8b31d98b642539478843fb51e677c" }],
       // Cron triggers are not inherited from the top-level block.
       "triggers": { "crons": ["20 3 * * *"] },
       "routes": [{ "pattern": "inkloom.art", "custom_domain": true }],

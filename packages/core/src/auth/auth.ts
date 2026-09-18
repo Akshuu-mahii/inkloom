@@ -28,6 +28,10 @@ import type { Logger } from "../util/logger";
 import type { Mailer } from "../notifications/mailer";
 import { hashIp } from "../util/crypto";
 import { ADMIN_ROLES } from "../rbac/permissions";
+import {
+  TWO_FACTOR_LOCK_SECONDS,
+  TWO_FACTOR_MAX_FAILED_ATTEMPTS,
+} from "../rate-limit/policies";
 import { deviceLabel } from "./session-policy";
 
 /**
@@ -483,6 +487,27 @@ export function createAuth(deps: AuthDeps) {
       twoFactor({
         issuer: "Inkloom",
         skipVerificationOnEnable: false,
+        /*
+         * Stated explicitly rather than inherited.
+         *
+         * These are the library's own defaults, but leaving them implicit cost
+         * a staging audit real time: grepping this repository for writes to
+         * `two_factor.failed_verification_count` and `locked_until` finds
+         * nothing — the writes happen inside the plugin, through the Drizzle
+         * adapter — so the columns read as dead and the second factor read as
+         * unprotected. Both conclusions were wrong. Naming the policy here
+         * makes the control visible at the call site, and pins it so a library
+         * default changing underneath us is a deliberate decision rather than a
+         * silent one.
+         *
+         * Covered by two-factor-lockout.integration.test.ts, which asserts on
+         * the column values and not on the presence of this block.
+         */
+        accountLockout: {
+          enabled: true,
+          maxFailedAttempts: TWO_FACTOR_MAX_FAILED_ATTEMPTS,
+          durationSeconds: TWO_FACTOR_LOCK_SECONDS,
+        },
       }),
       adminPlugin({
         defaultRole: "user",

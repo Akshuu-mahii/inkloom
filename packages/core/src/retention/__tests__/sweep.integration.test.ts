@@ -203,6 +203,9 @@ describe("what the sweep must never touch", () => {
       "analytics_events",
       "support_requests",
       "rate_limit_events",
+      // Last on purpose: the run records itself after this step, so the row
+      // staleness reads can never be the one the sweep just deleted.
+      "job_runs",
     ]);
     expect(first.failed).toBe(0);
     // Idempotent: nothing left to remove the second time, and no error.

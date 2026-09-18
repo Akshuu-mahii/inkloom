@@ -175,6 +175,22 @@ export const twoFactorPasswordSchema = z.object({
 
 export const resendVerificationSchema = z.object({ email: emailSchema });
 
+/**
+ * Erasing an account: the password, proven now, plus a deliberate acknowledgement.
+ *
+ * The password alone guards every other sensitive action here, and would be
+ * enough to prove identity. `understood` is not about identity — it is about
+ * intent. This is the one action in the product that cannot be undone, so it
+ * asks the caller to say so explicitly rather than letting a mis-aimed click on
+ * a live session destroy an account.
+ */
+export const deleteAccountSchema = z.object({
+  currentPassword: z.string().min(1, "Enter your password.").max(200),
+  understood: z.literal(true, {
+    message: "Confirm that you understand this permanently erases your account.",
+  }),
+});
+
 // ---------------------------------------------------------------------------
 // Me
 // ---------------------------------------------------------------------------

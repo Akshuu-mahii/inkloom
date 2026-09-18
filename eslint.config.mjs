@@ -42,7 +42,47 @@ export default tseslint.config(
     },
   },
   {
-    files: ["scripts/**/*.ts", "e2e/**/*.ts", "**/*.test.ts", "**/*.config.*"],
+    /*
+     * Standalone tooling: CLI scripts, e2e specs, tests and configs.
+     *
+     * `no-restricted-syntax` exists to keep `console.*` out of APPLICATION code,
+     * where the structured logger redacts secrets and keeps output as JSON. A
+     * CLI harness printing a table to a terminal is the case the rule is not
+     * about. `.mjs` is included deliberately: leaving it out meant one plain
+     * script carried 43 errors that no per-file suppression should have been
+     * needed to silence.
+     */
+    files: [
+      "scripts/**/*.{ts,mjs,js}",
+      "e2e/**/*.ts",
+      "**/*.test.ts",
+      "**/*.config.*",
+    ],
+    languageOptions: {
+      /*
+       * Declared inline rather than pulling in the `globals` package for one
+       * override. These are the Node and Web APIs a CLI script legitimately
+       * uses; the application packages get theirs from their own tsconfig.
+       */
+      globals: {
+        process: "readonly",
+        console: "readonly",
+        fetch: "readonly",
+        URL: "readonly",
+        performance: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        AbortSignal: "readonly",
+        AbortController: "readonly",
+        crypto: "readonly",
+        Buffer: "readonly",
+        TextDecoder: "readonly",
+        TextEncoder: "readonly",
+        Response: "readonly",
+        Request: "readonly",
+        Headers: "readonly",
+      },
+    },
     rules: { "no-restricted-syntax": "off" },
   },
 );

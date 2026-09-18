@@ -3,6 +3,7 @@ import type { Route } from "./+types/layout";
 import { Logo } from "../../components/logo";
 import { call, type Me } from "../../lib/api";
 import { formatCredits } from "../../components/ui";
+import { servicesContext } from "../../lib/context";
 
 /**
  * Dashboard shell.
@@ -16,7 +17,8 @@ import { formatCredits } from "../../components/ui";
  * visitor is redirected before a single byte of dashboard HTML is produced —
  * they never see a flash of shell.
  */
-export async function loader({ request }: Route.LoaderArgs) {
+export async function loader({ request, context }: Route.LoaderArgs) {
+  const { config } = context.get(servicesContext);
   const result = await call<Me>("/me", { request });
 
   if (result.status === 401 || !result.data) {
@@ -37,7 +39,25 @@ export async function loader({ request }: Route.LoaderArgs) {
     throw redirect("/auth/login?notice=suspended");
   }
 
-  return { me: result.data };
+  /*
+   * The console's real mount point, for the staff link in the bar below.
+   *
+   * It has to come from this loader. `useAdminPath` reads the ADMIN layout's
+   * data, and the dashboard is not inside that layout, so calling it here would
+   * silently return its "/admin" fallback — which is exactly the bug this
+   * replaces: the link was hardcoded to "/admin", and with a secret ADMIN_PATH
+   * configured that is the decoy, which 404s on purpose. The one person allowed
+   * into the console could not reach it by clicking the link built for them,
+   * and only in a deployed environment, where the secret is actually set.
+   *
+   * Sent to every signed-in user, staff or not. The path is obscurity and
+   * nothing more — every real control is re-checked server-side on each request
+   * — but there is no reason to hand it to accounts that cannot use it, so the
+   * value is only included when the role could plausibly need it.
+   */
+  const adminPath = result.data.role !== "user" ? config.ADMIN_PATH : null;
+
+  return { me: result.data, adminPath };
 }
 
 const NAV = [
@@ -52,7 +72,7 @@ const NAV = [
 ];
 
 export default function AppLayout({ loaderData }: Route.ComponentProps) {
-  const { me } = loaderData;
+  const { me, adminPath } = loaderData;
   const location = useLocation();
 
   return (
@@ -77,8 +97,8 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
             </span>
             {/* Staff only. The link is hidden from ordinary users as a courtesy;
                 the server refuses them regardless, which is the real control. */}
-            {me.role !== "user" && (
-              <Link to="/admin" className="app-admin-link">
+            {me.role !== "user" && adminPath && (
+              <Link to={adminPath} className="app-admin-link">
                 Admin
               </Link>
             )}
@@ -105,9 +125,34 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
       <div className="app-body">
         <nav className="app-nav" aria-label="Dashboard">
           <ul>
+              {/*
+                Fetch on hover or keyboard focus, not on click.
+
+                A dashboard tab is a client-side navigation that fetches the
+                route's data before it can render, so the whole cost lands
+                AFTER the click: measured on staging at ~840ms of server time
+                plus ~135ms of network, which is exactly the "clicking a tab
+                takes two seconds" complaint.
+
+                `prefetch="intent"` starts that fetch when the pointer enters
+                the link or it receives focus — typically a few hundred
+                milliseconds of warning — so by the time the click lands the
+                data is usually already there. It does not make the server
+                faster; it moves the waiting to a moment when nobody is
+                watching for it.
+
+                The cost is some speculative requests for links people hover
+                and never click. On a nav of eight items behind a login that is
+                a good trade; it would not be on a public page with a hundred.
+              */}
             {NAV.map((item) => (
               <li key={item.to}>
-                <NavLink to={item.to} end={item.end} className="app-nav-link">
+                <NavLink
+                  to={item.to}
+                  end={item.end}
+                  prefetch="intent"
+                  className="app-nav-link"
+                >
                   {item.label}
                 </NavLink>
               </li>

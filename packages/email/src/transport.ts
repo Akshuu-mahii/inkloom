@@ -104,6 +104,28 @@ export class ResendTransport implements EmailTransport {
   constructor(private readonly apiKey: string) {}
 
   async send(input: SendEmailInput, from: string): Promise<SendResult> {
+    /*
+     * An address that cannot exist is never handed to the provider.
+     *
+     * RFC 2606 and RFC 6761 reserve these domains permanently, so no mailbox
+     * behind one can ever be registered and every message to one is
+     * undeliverable by definition. Sending anyway costs three things that all
+     * matter: a slot from a daily quota of 100, a hard bounce recorded against a
+     * domain whose sending reputation is brand new, and — at load-test volume —
+     * thousands of both.
+     *
+     * The router above already did this in DEVELOPMENT. Doing it here means it
+     * holds in staging and production too, which is where the quota and the
+     * reputation actually exist. A load test can create ten thousand
+     * `@example.test` accounts and the provider never hears about any of them.
+     *
+     * This is not a test hook that could be turned on against real users: the
+     * check is on the RECIPIENT, and no real recipient can ever match it.
+     */
+    if (isUndeliverableTestAddress(input.to)) {
+      return { ok: true, providerMessageId: `suppressed_${input.template}` };
+    }
+
     try {
       const response = await fetchWithTimeout("https://api.resend.com/emails", {
         method: "POST",

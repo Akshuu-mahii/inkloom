@@ -203,7 +203,21 @@ async function seedSampleUsers(db: Database) {
 async function main() {
   const url = required("DATABASE_URL");
   const env = optional("INKLOOM_ENV", "development");
-  const pepper = required("ACCESS_CODE_PEPPER");
+  /*
+   * Reference data without the fixtures, in an environment that would normally
+   * get them.
+   *
+   * Staging wants this: the console's counters are only worth reading if every
+   * figure came from real activity, and six seeded accounts sitting in the user
+   * total make "12 signups" a number nobody can act on. The alternative was to
+   * claim INKLOOM_ENV=production to reach the same branch, which would be a lie
+   * told to a script that is specifically trying to protect production.
+   */
+  const referenceOnly = process.argv.includes("--reference-only") || env === "production";
+
+  // Only the campaign needs the pepper, so demanding it for a reference-only
+  // run would block a seed that has no use for it.
+  const pepper = referenceOnly ? "" : required("ACCESS_CODE_PEPPER");
 
   const { db, pool } = createDb({ connectionString: url, max: 1 });
 
@@ -212,8 +226,9 @@ async function main() {
 
     await seedReferenceData(db);
 
-    if (env === "production") {
-      console.log("\n  Production: reference data only. No sample users, no seeded campaign.");
+    if (referenceOnly) {
+      const why = env === "production" ? "Production" : "Reference-only";
+      console.log(`\n  ${why}: reference data only. No sample users, no seeded campaign.`);
       console.log("  Create the launch campaign with `pnpm codes:create` or from /admin.\n");
       return;
     }

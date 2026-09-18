@@ -203,6 +203,13 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
                 <NavLink
                   to={item.to ? `${adminPath}/${item.to}` : adminPath}
                   end={item.end}
+                  /*
+                   * Same reasoning as the dashboard nav: the console's pages are
+                   * its slowest (measured at ~1,050ms server time), and every
+                   * millisecond of that lands after the click. Hovering a tab
+                   * starts the fetch early.
+                   */
+                  prefetch="intent"
                   className="admin-nav-link"
                 >
                   {item.label}

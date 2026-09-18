@@ -1,4 +1,7 @@
 import { type RouteConfig, index, layout, prefix, route } from "@react-router/dev/routes";
+import { config } from "dotenv";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * Route manifest.
@@ -26,7 +29,38 @@ import { type RouteConfig, index, layout, prefix, route } from "@react-router/de
  * That is the right trade for something that is an obscurity layer and never
  * the authorization: it is rotated rarely, and authorization is re-checked
  * server-side on every request regardless of which path got there.
+ *
+ * WHY THIS LOADS .env ITSELF, AND WHY IT REFUSES TO GUESS
+ * ------------------------------------------------------
+ * `ADMIN_PATH` is a Cloudflare SECRET, which exists only at runtime. A deploy
+ * that does not also put it in the BUILD environment produces a route table
+ * mounted at `/admin` while the Worker believes the console lives somewhere
+ * else — and the Worker then 404s `/admin` as a decoy. Both doors end up
+ * locked and the console becomes unreachable, with the API still working
+ * perfectly so nothing else looks wrong.
+ *
+ * That shipped. It survived a full security pass because the live suite
+ * asserted `/admin` returns 404, which is exactly what a correctly-hidden
+ * console AND a completely broken one both do.
+ *
+ * So: load `.env` for local builds, and REFUSE to build a deployed environment
+ * without the value rather than silently falling back to `/admin`.
  */
+config({ path: resolve(dirname(fileURLToPath(import.meta.url)), "../../../.env"), quiet: true });
+
+const DEPLOYED = ["staging", "production"];
+const targetEnv = process.env.CLOUDFLARE_ENV ?? "";
+
+if (DEPLOYED.includes(targetEnv) && !process.env.ADMIN_PATH) {
+  throw new Error(
+    `ADMIN_PATH is required to build for "${targetEnv}".\n\n` +
+      "Without it the admin console is built at /admin, which the Worker then\n" +
+      "404s as a decoy — leaving the console unreachable at every path.\n\n" +
+      "Set it in .env for a local deploy, or as a build-step secret in CI. It\n" +
+      "must match the ADMIN_PATH secret configured on the Worker.",
+  );
+}
+
 const ADMIN_PREFIX = (process.env.ADMIN_PATH ?? "/admin").replace(/^\//, "") || "admin";
 
 export default [
