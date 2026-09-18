@@ -55,7 +55,23 @@ export default function MarketingLayout() {
     void import("lenis").then(({ default: Lenis }) => {
       if (cancelled) return;
       lenis = new Lenis({
-        duration: 1.05,
+        /*
+         * 0.7, not 1.05.
+         *
+         * `duration` is how long Lenis takes to finish travelling to where the
+         * wheel already asked to go, so it is felt as LAG between the gesture
+         * and the page: at 1.05s the content kept sliding long after the
+         * fingers stopped, which reads as a slow site rather than a smooth one.
+         * Short enough to feel immediate, long enough that the easing is still
+         * doing something.
+         */
+        duration: 0.7,
+        // A steeper curve than the default, so the page catches up to the
+        // cursor early and only the last few pixels are eased.
+        easing: (t: number) => 1 - Math.pow(1 - t, 4),
+        // Wheel gestures move a little further per notch, so reaching the foot
+        // of a long page takes fewer of them.
+        wheelMultiplier: 1.15,
         // Never intercept touch: native momentum on mobile is better than
         // anything a library reproduces, and hijacking it breaks scroll-to-top
         // gestures.
@@ -93,7 +109,6 @@ export default function MarketingLayout() {
 }
 
 const NAV = [
-  { to: "/examples", label: "Examples" },
   { to: "/how-it-works", label: "How it works" },
   { to: "/pricing", label: "Pricing" },
   { to: "/faq", label: "FAQ" },
@@ -265,7 +280,6 @@ const FOOTER_GROUPS = [
   {
     heading: "Product",
     links: [
-      { to: "/examples", label: "Examples" },
       { to: "/how-it-works", label: "How it works" },
       { to: "/pricing", label: "Pricing" },
       { to: "/early-access", label: "Early access" },

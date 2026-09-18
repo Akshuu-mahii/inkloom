@@ -10,7 +10,6 @@ import { settled } from "./support";
  */
 const PUBLIC_PAGES = [
   { path: "/", h1: /Logos, built the way/ },
-  { path: "/examples", h1: /Reference marks/ },
   { path: "/how-it-works", h1: /Four models/ },
   { path: "/early-access", h1: /Join early access/ },
   { path: "/pricing", h1: /Pricing, planned/ },

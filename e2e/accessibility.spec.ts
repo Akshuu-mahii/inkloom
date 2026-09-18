@@ -17,7 +17,6 @@ const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
 
 const PAGES = [
   "/",
-  "/examples",
   "/how-it-works",
   "/pricing",
   "/faq",
@@ -182,7 +181,9 @@ test.describe("reduced motion", () => {
     await settled(page);
 
     const animation = await page
-      .locator("svg path.loop-path")
+      // The mark's rings are <circle>, not <path>: an arc path leaves a seam
+      // where its start meets its end, visible at hero size.
+      .locator("svg .loop-path")
       .first()
       .evaluate((el) => {
         const s = getComputedStyle(el);
@@ -219,7 +220,7 @@ test.describe("mobile", () => {
   });
 
   test("no page scrolls sideways on a phone", async ({ page }) => {
-    for (const path of ["/", "/pricing", "/examples", "/auth/signup", "/faq", "/terms"]) {
+    for (const path of ["/", "/pricing", "/auth/signup", "/faq", "/terms"]) {
       await page.goto(path);
       await settled(page);
       const overflow = await page.evaluate(

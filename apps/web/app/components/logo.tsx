@@ -107,58 +107,62 @@ function InfinityLoop({ size, color, animate }: { size: number; color: string; a
         marginInline: "-0.012em",
       }}
     >
-      <path
-        d={LOOP_PATH}
-        fill="none"
-        stroke={color}
-        strokeWidth={LOOP_STROKE}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        /* Normalises the reported length to 100 so the CSS dash animation is
-           correct regardless of the curve's real geometry. */
-        pathLength={100}
-        className={animate ? "loop-path" : undefined}
-      />
+      <LoopRings color={color} animate={animate} />
     </svg>
   );
 }
 
 /**
- * The loop, measured off the approved artwork rather than drawn by eye.
+ * The loop, measured off the approved artwork — and drawn the way the artwork
+ * is actually built.
  *
- * Every number here comes from sampling `inkloom.png` (3552x1184) and is
- * expressed in a 840x450 viewBox, which is the mark's true aspect ratio of
- * 1.867 — not the 1.62 this file used to assume.
+ * IT IS TWO RINGS, NOT A FIGURE-EIGHT. This file used to carry a hand-written
+ * bezier figure-eight: one continuous path that looped left, crossed, and
+ * looped right. The measurements were right and the curve was not — its
+ * crossing pinched the right lobe's counter into a lopsided teardrop, which at
+ * hero size is the first thing anyone sees and at header size turns the mark
+ * into an orange blob.
  *
- *   loop bounding box   840 x 450   (artwork: x 1638-2478, y 438-888)
- *   stroke width        134         (artwork: 134 across, 127 through a lobe)
+ * The real construction is simpler and it is what the wordmark says it is: two
+ * circles, stroked heavily enough that their strokes merge where they overlap.
+ * The counters stay perfectly circular because they ARE circles, and the
+ * junction shapes itself.
+ *
+ * Every number is sampled from `inkloom.png` (3552x1184), expressed in a
+ * 840x450 viewBox — the mark's true aspect ratio of 1.867:
+ *
+ *   outer diameter      450         (so outer radius 225)
+ *   ring thickness      134
+ *   centreline radius   158         (225 - 134/2)
+ *   counter radius       91         (158 - 134/2)
  *   lobe centres        x 225, 615  at y 225
- *   centreline radius   158         (so 158 + 134/2 = 225 = half the height)
- *   crossing            420, 225
  *
- * The lobes are true circular quarters on their outer three-quarters — hence
- * the 87 control-point offset, which is 158 x 0.5523, the standard circle
- * approximation — and pull into the crossing on the inner quarter. Written as
- * one continuous closed path so it can still be drawn as a single stroke.
+ * The centres sit 390 apart, which is more than 2x158, so the CENTRELINES do
+ * not touch — but the strokes, 134 wide, overlap by 60. That overlap is the
+ * crossing.
  */
 export const LOOP_VIEWBOX = "0 0 840 450";
 export const LOOP_ASPECT = 840 / 450;
 export const LOOP_STROKE = 134;
+export const LOOP_RADIUS = 158;
+export const LOOP_CENTRES = [225, 615] as const;
+export const LOOP_CY = 225;
 
-export const LOOP_PATH = [
-  "M 420 225",
-  // left lobe, anticlockwise from the crossing
-  "C 373 117 315 67 225 67",
-  "C 138 67 67 138 67 225",
-  "C 67 312 138 383 225 383",
-  "C 315 383 373 333 420 225",
-  // right lobe, mirrored exactly about x = 420
-  "C 467 117 525 67 615 67",
-  "C 702 67 773 138 773 225",
-  "C 773 312 702 383 615 383",
-  "C 525 383 467 333 420 225",
-  "Z",
-].join(" ");
+/**
+ * The rings as path data, for the one caller that animates them along a
+ * timeline. The mark itself uses <circle>: an arc path has a start and an end,
+ * and at this stroke width the join between them shows as a hairline wedge
+ * through the top of the ring — visible at hero size, which is exactly where
+ * it must not be.
+ */
+export const LOOP_PATHS = LOOP_CENTRES.map(
+  (cx) =>
+    `M ${cx} ${LOOP_CY - LOOP_RADIUS}` +
+    ` A ${LOOP_RADIUS} ${LOOP_RADIUS} 0 1 1 ${cx - 0.01} ${LOOP_CY - LOOP_RADIUS} Z`,
+);
+
+/** Kept for callers that want one `d`; the rings are separate subpaths. */
+export const LOOP_PATH = LOOP_PATHS.join(" ");
 
 /**
  * The loop on its own, at display scale, with the construction geometry a logo
@@ -195,16 +199,38 @@ export function LoopSpecimen({
           <line x1="420" y1="30" x2="420" y2="420" />
         </g>
       )}
-      <path
-        d={LOOP_PATH}
-        fill="none"
-        stroke="var(--color-loop)"
-        strokeWidth={LOOP_STROKE}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        pathLength={100}
-        className={animate ? "loop-path" : undefined}
-      />
+      <LoopRings color="var(--color-loop)" animate={animate} />
     </svg>
+  );
+}
+
+/**
+ * The two rings, painted.
+ *
+ * `paint-order: stroke` is not needed and no fill is used: two strokes of the
+ * same colour meeting simply merge, which is exactly what the artwork does.
+ * Round caps would be visible if a ring were ever partially drawn, so the
+ * animated state starts each ring from the top and closes it.
+ */
+function LoopRings({ color, animate }: { color: string; animate: boolean }) {
+  return (
+    <g>
+      {LOOP_CENTRES.map((cx, i) => (
+        <circle
+          key={cx}
+          cx={cx}
+          cy={LOOP_CY}
+          r={LOOP_RADIUS}
+          fill="none"
+          stroke={color}
+          strokeWidth={LOOP_STROKE}
+          /* Normalises the reported length to 100 so a dash animation runs at
+             the same rate on both rings. */
+          pathLength={100}
+          className={animate ? "loop-path" : undefined}
+          style={animate ? { animationDelay: `${i * 0.18}s` } : undefined}
+        />
+      ))}
+    </g>
   );
 }

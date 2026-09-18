@@ -67,7 +67,6 @@ export default [
   // --- Marketing ---------------------------------------------------------
   layout("routes/marketing/layout.tsx", [
     index("routes/marketing/home.tsx"),
-    route("examples", "routes/marketing/examples.tsx"),
     route("how-it-works", "routes/marketing/how-it-works.tsx"),
     route("early-access", "routes/marketing/early-access.tsx"),
     route("pricing", "routes/marketing/pricing.tsx"),

@@ -69,7 +69,6 @@ export function ErrorBoundary() {
           {(
             [
               ["/", "Homepage"],
-              ["/examples", "Logo examples"],
               ["/how-it-works", "How Inkloom will work"],
               ["/auth/login", "Sign in"],
               ["/contact", "Contact support"],

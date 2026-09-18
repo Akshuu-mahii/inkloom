@@ -1,10 +1,11 @@
+import { useRef } from "react";
 import { Link } from "react-router";
 import type { Route } from "./+types/home";
 import { LoopSpecimen } from "../../components/logo";
 import { buildMeta, faqJsonLd, organizationJsonLd, websiteJsonLd } from "../../lib/seo";
-import { MarkGallery } from "../../components/mark-gallery";
 import { TrackView } from "../../components/track";
 import { track } from "../../lib/analytics";
+import { useDrawnRules } from "../../components/editorial-motion";
 
 export function meta({ location }: Route.MetaArgs) {
   return buildMeta({
@@ -23,8 +24,11 @@ export function meta({ location }: Route.MetaArgs) {
  * as future ("when generation opens"). No CTA promises a logo today.
  */
 export default function Home() {
+  const page = useRef<HTMLDivElement>(null);
+  useDrawnRules(page);
+
   return (
-    <>
+    <div ref={page}>
       <TrackView event="landing_viewed" />
       <script
         type="application/ld+json"
@@ -34,13 +38,12 @@ export default function Home() {
         }}
       />
       <Hero />
-      <Gallery />
       <Approach />
       <Systems />
       <Benefits />
       <Faq />
       <FinalCta />
-    </>
+    </div>
   );
 }
 
@@ -101,8 +104,8 @@ function Hero() {
             >
               Join early access
             </Link>
-            <Link to="/examples" className="btn btn-outline">
-              View logo examples
+            <Link to="/how-it-works" className="btn btn-outline">
+              How it works
             </Link>
           </div>
 
@@ -126,7 +129,7 @@ function Hero() {
             </div>
             <div>
               <dt>Junction</dt>
-              <dd>Tangent at midpoint</dd>
+              <dd>Strokes overlap by 60u</dd>
             </div>
             <div>
               <dt>Stroke</dt>
@@ -153,21 +156,6 @@ function Hero() {
           .hero-mark { display: block; }
         }
       `}</style>
-    </section>
-  );
-}
-
-function Gallery() {
-  return (
-    <section className="measure" style={{ paddingBlock: "clamp(3rem, 6vw, 4.5rem)" }}>
-      <SectionHead
-        heading="Marks the models are learning from"
-        support="Reference constructions from the training set: geometric monograms, monoline symbols and wordmark lockups. These illustrate the systems Inkloom is being taught — they are not generated output."
-      />
-      <MarkGallery />
-      <p style={{ marginTop: "1.5rem", fontSize: "var(--text-fine)", color: "var(--color-muted)" }}>
-        <Link to="/examples">See the full set of reference marks</Link>
-      </p>
     </section>
   );
 }
@@ -210,32 +198,38 @@ function Approach() {
         <ol className="steps">
           {steps.map((step, index) => (
             <li key={step.title}>
+              <span className="rule-draw" data-rule aria-hidden="true" />
               <span className="step-index numeric" aria-hidden="true">
                 {index + 1}
               </span>
-              <div>
-                <h3 style={{ fontSize: "var(--text-h4)" }}>{step.title}</h3>
-                <p style={{ marginTop: "0.5rem", color: "var(--color-muted)" }}>{step.body}</p>
-              </div>
+              {/* h3 and p are DIRECT grid children, not wrapped in a div. The
+                  wrapper was the bug: it filled column two by itself, so the
+                  third column stayed empty and every step's text ran down a
+                  narrow gutter with two thirds of the page beside it. */}
+              <h3>{step.title}</h3>
+              <p>{step.body}</p>
             </li>
           ))}
         </ol>
       </div>
 
       <style>{`
-        .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; counter-reset: step; }
+        .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
         .steps > li {
-          display: grid; grid-template-columns: 3rem 1fr; gap: 1.25rem;
-          padding: 1.75rem 0; border-top: 1px solid var(--color-rule-soft);
+          position: relative; display: grid; grid-template-columns: 3rem 1fr;
+          gap: 0.5rem 1.25rem; padding: 1.75rem 0;
         }
+        .steps .rule-draw { position: absolute; inset-inline: 0; top: 0; height: 1px; background: var(--color-rule-soft); }
         .steps > li:last-child { border-bottom: 1px solid var(--color-rule-soft); }
+        .steps h3 { font-size: var(--text-h4); }
+        .steps p { color: var(--color-muted); }
         .step-index {
           font-family: var(--font-display); font-size: var(--text-h4);
-          color: var(--color-faint); line-height: 1.15;
+          color: var(--color-faint); line-height: 1.15; font-variant-numeric: tabular-nums;
         }
         @media (min-width: 800px) {
-          .steps > li { grid-template-columns: 4rem 22ch 1fr; align-items: baseline; }
-          .steps h3 { grid-column: 2; }
+          .steps > li { grid-template-columns: 4rem minmax(0, 22ch) minmax(0, 1fr); gap: 2.5rem; align-items: baseline; padding: 2rem 0; }
+          .steps p { max-width: 52ch; }
         }
       `}</style>
     </section>

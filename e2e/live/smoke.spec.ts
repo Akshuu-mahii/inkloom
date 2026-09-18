@@ -18,7 +18,6 @@ import { expect, test } from "@playwright/test";
 
 const PUBLIC_PAGES = [
   "/",
-  "/examples",
   "/how-it-works",
   "/pricing",
   "/faq",

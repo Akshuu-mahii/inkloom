@@ -11,7 +11,6 @@ import { servicesContext } from "../../lib/context";
  */
 const PUBLIC_ROUTES: Array<{ path: string; changefreq: string; priority: string }> = [
   { path: "/", changefreq: "weekly", priority: "1.0" },
-  { path: "/examples", changefreq: "weekly", priority: "0.9" },
   { path: "/how-it-works", changefreq: "monthly", priority: "0.9" },
   { path: "/early-access", changefreq: "weekly", priority: "0.9" },
   { path: "/pricing", changefreq: "monthly", priority: "0.8" },
