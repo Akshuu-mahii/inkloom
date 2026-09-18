@@ -21,6 +21,7 @@ import {
   auditEvent,
   creditLedger,
   emailEvent,
+  jobRun,
   newId,
   securityEvent,
   session as sessionTable,
@@ -1765,5 +1766,118 @@ adminRoutes.get("/emails", requirePermission("admin.overview.read"), async (c) =
     byTemplate: byTemplate.rows,
     daily: daily.rows,
     failures: failures.rows,
+  });
+});
+
+// ===========================================================================
+// Recovery
+// ===========================================================================
+/**
+ * Everything that answers "could we get the data back right now?"
+ *
+ * Deliberately READ-ONLY, and that is a design decision rather than an
+ * omission. Two buttons that would obviously belong here are missing on
+ * purpose:
+ *
+ *  - DOWNLOAD A BACKUP. An archive is a complete copy of every address,
+ *    profile and ledger entry the platform holds. A download control turns one
+ *    borrowed admin session into a total data breach, and no amount of gating
+ *    changes that the file would then exist on someone's laptop. Archives are
+ *    fetched from CI by a person who already has the decryption key, which is
+ *    deliberately not stored here.
+ *
+ *  - RESTORE. Restoring discards every write since the recovery point. It is
+ *    the most destructive operation in the system and it belongs at the end of
+ *    a deliberate procedure with a verification step in the middle — not one
+ *    mis-click away on a page someone opens when they are already panicking.
+ *    `docs/incident-runbook.md` is that procedure.
+ *
+ * What this page IS for: knowing, at a glance and without running anything,
+ * whether the protections are still working — because the failure mode of a
+ * backup system is silence, and the whole point of putting it in front of an
+ * operator is that silence becomes visible.
+ */
+adminRoutes.get("/recovery", requirePermission("settings.read"), async (c) => {
+  const { db } = c.get("services");
+
+  const [jobs, history, integrity] = await Promise.all([
+    Promise.all(
+      [RETENTION_JOB, BACKUP_JOB, RESTORE_TEST_JOB].map(async (job) => {
+        const health = await jobHealth(db, job, JOB_MAX_AGE_HOURS[job]).catch(() => null);
+        return {
+          job,
+          maxAgeHours: JOB_MAX_AGE_HOURS[job] ?? null,
+          healthy: health?.healthy ?? false,
+          lastRunAt: health?.lastRunAt ?? null,
+          lastStatus: health?.lastStatus ?? "unknown",
+          ageHours: health?.ageHours ?? null,
+          rowsLastRun: health?.removedLastRun ?? null,
+        };
+      }),
+    ),
+
+    // Recent runs across every job, so a job that has been flapping is visible
+    // rather than only its latest verdict.
+    db
+      .select({
+        job: jobRun.job,
+        status: jobRun.status,
+        finishedAt: jobRun.finishedAt,
+        durationMs: jobRun.durationMs,
+        removed: jobRun.removed,
+        error: jobRun.error,
+      })
+      .from(jobRun)
+      .orderBy(desc(jobRun.finishedAt))
+      .limit(20),
+
+    db.execute<Record<string, string>>(sql`
+      SELECT
+        (SELECT COUNT(*)::text FROM credit_wallets w
+          WHERE w.balance <> COALESCE(
+            (SELECT SUM(amount) FROM credit_ledger l WHERE l.user_id = w.user_id), 0)) AS ledger_drift,
+        (SELECT COUNT(*)::text FROM (
+           SELECT user_id, campaign_id FROM access_code_redemptions
+            GROUP BY user_id, campaign_id HAVING COUNT(*) > 1) d)                      AS duplicate_redemptions,
+        (SELECT COUNT(*)::text FROM (
+           SELECT idempotency_key FROM credit_ledger
+            GROUP BY idempotency_key HAVING COUNT(*) > 1) d)                           AS duplicate_ledger_keys,
+        (SELECT COUNT(*)::text FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+          WHERE NOT t.tgisinternal)                                                    AS append_only_triggers,
+        (SELECT COALESCE(SUM(status_5xx),0)::text FROM request_metrics)                AS five_xx
+    `),
+  ]);
+
+  const row = integrity.rows[0] ?? {};
+  const n = (key: string) => Number(row[key] ?? 0);
+
+  return ok(c, {
+    jobs,
+    history: history.map((h) => ({
+      job: h.job,
+      status: h.status,
+      finishedAt: h.finishedAt,
+      durationMs: h.durationMs,
+      rows: h.removed,
+      error: h.error,
+    })),
+    /*
+     * The invariants that decide whether a restore is even the right response.
+     * Ledger drift is the one that changes the answer: a slow site can wait,
+     * money being wrong cannot.
+     */
+    integrity: {
+      ledgerDrift: n("ledger_drift"),
+      duplicateRedemptions: n("duplicate_redemptions"),
+      duplicateLedgerKeys: n("duplicate_ledger_keys"),
+      appendOnlyTriggers: n("append_only_triggers"),
+      serverErrors: n("five_xx"),
+    },
+    windows: {
+      /** Neon point-in-time recovery on the current plan. */
+      pitrHours: 6,
+      /** How long an encrypted archive is kept in CI. */
+      archiveRetentionDays: 30,
+    },
   });
 });

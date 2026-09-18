@@ -138,6 +138,7 @@ export default [
       route("support", "routes/admin/support.tsx"),
       route("settings", "routes/admin/settings.tsx"),
       route("system", "routes/admin/system.tsx"),
+      route("recovery", "routes/admin/recovery.tsx"),
     ]),
   ]),
 

@@ -139,6 +139,7 @@ const NAV: NavItem[] = [
   { to: "security", label: "Security", permission: "security.read" },
   { to: "settings", label: "Settings", permission: "settings.read" },
   { to: "system", label: "System", permission: "settings.read" },
+  { to: "recovery", label: "Recovery", permission: "settings.read" },
 ];
 
 export default function AdminLayout({ loaderData }: Route.ComponentProps) {
