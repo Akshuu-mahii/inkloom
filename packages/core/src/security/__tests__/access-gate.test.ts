@@ -23,13 +23,21 @@ import {
   type AccessGateConfig,
 } from "../access-gate";
 
+/*
+ * `CryptoKey` and `CryptoKeyPair` are values at runtime in every runtime this
+ * targets, but not global TYPES in the Node type set this package compiles
+ * against, so both are taken from the functions that produce them.
+ */
+type Key = Awaited<ReturnType<typeof crypto.subtle.importKey>>;
+type KeyPair = { privateKey: Key; publicKey: Key };
+
 const TEAM = "inkloom.cloudflareaccess.com";
 const AUD = "aud-of-this-application";
 const OWNER = "owner@example.com";
 
 const gate: AccessGateConfig = { teamDomain: TEAM, aud: AUD, allowedEmails: [OWNER] };
 
-let keyPair: CryptoKeyPair;
+let keyPair: KeyPair;
 let jwks: { keys: unknown[] };
 const KID = "test-key-1";
 
@@ -45,7 +53,7 @@ const encodeJson = (value: unknown) => b64url(new TextEncoder().encode(JSON.stri
 async function mint(
   claims: Record<string, unknown> = {},
   header: Record<string, unknown> = {},
-  key: CryptoKey = keyPair.privateKey,
+  key: Key = keyPair.privateKey,
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const head = encodeJson({ alg: "RS256", kid: KID, typ: "JWT", ...header });
@@ -78,7 +86,7 @@ beforeEach(async () => {
     },
     true,
     ["sign", "verify"],
-  )) as CryptoKeyPair;
+  )) as KeyPair;
 
   const publicJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
   jwks = { keys: [{ ...publicJwk, kid: KID, alg: "RS256", use: "sig" }] };
@@ -132,7 +140,7 @@ describe("tokens that must be refused", () => {
       },
       true,
       ["sign", "verify"],
-    )) as CryptoKeyPair;
+    )) as KeyPair;
 
     const result = await verifyAccessToken(await mint({}, {}, attacker.privateKey), gate);
     expect(result).toEqual({ ok: false, reason: "bad_signature" });

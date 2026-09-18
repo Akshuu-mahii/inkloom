@@ -234,8 +234,10 @@ describe("staging cannot email the public", () => {
   });
 
   it("refuses to boot with neither an allowlist nor an owner", () => {
-    const { EMAIL_ALLOWLIST: _a, OWNER_EMAIL: _b, ...bare } = stagingEnv();
+    const { EMAIL_ALLOWLIST: _omitted, ...bare } = stagingEnv();
 
+    // The fixture carries no OWNER_EMAIL either, which is the case that matters:
+    // a staging environment configured by someone who never thought about mail.
     expect(() => loadConfig(bare)).toThrow(/EMAIL_ALLOWLIST is required in staging/);
   });
 

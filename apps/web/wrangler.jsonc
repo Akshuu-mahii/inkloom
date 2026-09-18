@@ -143,6 +143,17 @@
       // Cron triggers are not inherited from the top-level block.
       "triggers": { "crons": ["20 3 * * *"] },
       "routes": [{ "pattern": "staging.inkloom.art", "custom_domain": true }],
+      /*
+       * NO workers.dev URL, and this is a security control rather than tidiness.
+       *
+       * A Cloudflare Access policy protects a HOSTNAME. With the workers.dev
+       * route enabled, inkloom-staging.<subdomain>.workers.dev reaches the same
+       * Worker with no Access in front of it at all — an environment everyone
+       * believes is private, published at a guessable address. The Worker also
+       * verifies the Access JWT itself (see ACCESS_TEAM_DOMAIN), so this is the
+       * second of two locks rather than the only one.
+       */
+      "workers_dev": false,
     },
 
     "production": {
@@ -168,6 +179,9 @@
       // Cron triggers are not inherited from the top-level block.
       "triggers": { "crons": ["20 3 * * *"] },
       "routes": [{ "pattern": "inkloom.art", "custom_domain": true }],
+      // The product is served from its own domain; a second, un-branded address
+      // for the same Worker is only ever a way around a control set on the first.
+      "workers_dev": false,
     },
   },
 }
