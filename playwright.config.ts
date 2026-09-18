@@ -96,12 +96,23 @@ export default defineConfig({
     },
   ],
 
-  webServer: {
-    command: "pnpm --filter @inkloom/web dev",
-    url: `${BASE_URL}/api/health`,
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-    stdout: "pipe",
-    stderr: "pipe",
-  },
+  /*
+   * No local server when the target is a DEPLOYED one.
+   *
+   * `E2E_BASE_URL` means "test that host", so starting a dev server here is at
+   * best waste and at worst a different application answering the assertions.
+   * Playwright also refuses outright when the URL already responds — which is
+   * how this surfaced: the post-deploy smoke test against staging failed with
+   * "already used", on a deploy that was perfectly healthy.
+   */
+  webServer: process.env.E2E_BASE_URL
+    ? undefined
+    : {
+        command: "pnpm --filter @inkloom/web dev",
+        url: `${BASE_URL}/api/health`,
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+        stdout: "pipe",
+        stderr: "pipe",
+      },
 });
