@@ -31,9 +31,23 @@ export interface AccessGateConfig {
   aud: string;
   /** Addresses permitted through, matched case-insensitively. Empty = nobody. */
   allowedEmails: readonly string[];
+  /**
+   * Service tokens permitted through, by Client ID.
+   *
+   * Access issues a JWT for a service token exactly as it does for a person,
+   * but with `common_name` — the token's Client ID — in place of `email`. This
+   * is how anything non-interactive gets in, and without it turning Access on
+   * breaks the deploy pipeline: the post-deploy smoke test drives a real
+   * browser against the deployed site and would meet a login page.
+   *
+   * Separate from `allowedEmails` on purpose. A service token is a credential
+   * held by CI, not a person, and the two should be revocable independently.
+   */
+  allowedServiceTokens?: readonly string[];
 }
 
 export interface AccessIdentity {
+  /** The person's address, or `service:<client id>` for a service token. */
   email: string;
   /** Access's own subject id, useful in an audit line. */
   sub: string;
@@ -54,6 +68,7 @@ export type AccessRefusal =
   | "not_yet_valid"
   | "no_email"
   | "email_not_allowed"
+  | "service_token_not_allowed"
   | "keys_unavailable";
 
 /** Header Access sets on the request; the cookie is the browser-side copy. */
@@ -191,6 +206,8 @@ export async function verifyAccessToken(
     nbf?: number;
     sub?: string;
     email?: string;
+    /** Present instead of `email` when the caller is a service token. */
+    common_name?: string;
   };
   try {
     header = decodeSegment(parts[0]!) as typeof header;
@@ -240,14 +257,31 @@ export async function verifyAccessToken(
     return { ok: false, reason: "not_yet_valid" };
   }
 
-  const email = claims.email?.trim().toLowerCase();
-  if (!email) return { ok: false, reason: "no_email" };
-
   /*
    * The last gate, and the one that means "me" rather than "anyone in the
-   * account". An Access policy can be edited in a dashboard; this is in the
-   * deployment's own configuration, and both must agree.
+   * account". An Access policy can be edited in a dashboard; this list is in
+   * the deployment's own configuration, and both must agree.
    */
+  const email = claims.email?.trim().toLowerCase();
+  const commonName = claims.common_name?.trim();
+
+  if (!email) {
+    // No email means a service token — CI, a monitor, something automated.
+    if (!commonName) return { ok: false, reason: "no_email" };
+
+    const tokens = (config.allowedServiceTokens ?? []).map((t) => t.trim()).filter(Boolean);
+    if (!tokens.includes(commonName)) return { ok: false, reason: "service_token_not_allowed" };
+
+    return {
+      ok: true,
+      identity: {
+        email: `service:${commonName}`,
+        sub: claims.sub ?? "",
+        expiresAt: new Date(claims.exp * 1000),
+      },
+    };
+  }
+
   const allowed = config.allowedEmails.map((e) => e.trim().toLowerCase()).filter(Boolean);
   if (!allowed.includes(email)) return { ok: false, reason: "email_not_allowed" };
 

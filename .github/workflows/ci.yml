@@ -236,30 +236,56 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
 
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: inkloom
-          POSTGRES_PASSWORD: inkloom_ci
-          POSTGRES_DB: inkloom
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U inkloom"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
-      mailpit:
-        image: axllent/mailpit:latest
-        ports: ["1025:1025", "8025:8025"]
-
+    # NOT `services:`, and that is the whole point.
+    #
+    # A service container publishes its port through docker-proxy, so
+    # 127.0.0.1:5432 on the runner is a forwarder rather than a listening
+    # database. Node connects through it happily — migrations and the seed ran
+    # fine — but the Worker does not: workerd refused every connection with
+    # "connect(): Connection refused", so every page whose loader touches the
+    # database rendered an error boundary, hydration never completed, and 11
+    # journeys failed on a 20-second wait for a page that was never coming.
+    #
+    # `--network host` puts postgres and mailpit on the runner's own network
+    # namespace, listening on the real loopback with nothing in between. It is
+    # also how a developer runs them locally, so CI and a laptop now fail and
+    # pass for the same reasons.
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+
+      - name: Start postgres and mailpit on the host network
+        run: |
+          docker run -d --name inkloom-postgres --network host \
+            -e POSTGRES_USER=inkloom -e POSTGRES_PASSWORD=inkloom_ci -e POSTGRES_DB=inkloom \
+            postgres:17-alpine
+          docker run -d --name inkloom-mailpit --network host axllent/mailpit:latest
+
+          for attempt in $(seq 1 30); do
+            if docker exec inkloom-postgres pg_isready -U inkloom -h 127.0.0.1 >/dev/null 2>&1; then
+              echo "postgres is accepting connections."
+              break
+            fi
+            if [ "$attempt" = "30" ]; then
+              echo "::error::postgres never became ready."
+              docker logs inkloom-postgres
+              exit 1
+            fi
+            sleep 2
+          done
+
+          # Proves the loopback listener is real, from OUTSIDE the container —
+          # which is the exact thing a service container did not provide.
+          until nc -z 127.0.0.1 5432; do sleep 1; done
+          until nc -z 127.0.0.1 8025; do sleep 1; done
+
+          # Printed so the next person debugging this can see in one glance
+          # whether postgres itself is on the port or a docker-proxy forwarder.
+          echo "--- listeners ---"
+          ss -ltnp 2>/dev/null | grep -E ':(5432|8025|1025)\b' || true
 
       - name: Prepare the database
         run: |
