@@ -250,6 +250,33 @@ jobs:
           pnpm db:migrate
           pnpm db:seed
 
+      # The job-level `env:` block above reaches Node — migrations, the seed,
+      # the Playwright process — but NOT the Worker. The dev server runs the
+      # application inside workerd, whose environment is assembled from
+      # wrangler.jsonc `vars` plus `.dev.vars`, and inherits nothing from the
+      # shell that launched it. Locally an untracked `.dev.vars` supplies the
+      # secrets, which is why this was invisible until CI ran for the first
+      # time: every developer had the file, the runner had no such file, and
+      # the Worker answered every request with `BETTER_AUTH_SECRET: expected
+      # string, received undefined`.
+      #
+      # Only the values with no safe default are written here. Everything else
+      # is deliberately left to wrangler.jsonc, so the suite runs against the
+      # same configuration a developer has locally rather than a CI-only one.
+      - name: Give the Worker its environment
+        run: |
+          cat > apps/web/.dev.vars <<'VARS'
+          DATABASE_URL=postgres://inkloom:inkloom_ci@127.0.0.1:5432/inkloom
+          BETTER_AUTH_SECRET=ci-only-secret-not-used-anywhere-else-000000
+          ACCESS_CODE_PEPPER=ci-only-access-code-pepper-32-chars-x
+          IP_HASH_PEPPER=ci-only-ip-hash-pepper-32-characters
+          # Cloudflare's documented always-passes test secret, paired with the
+          # always-passes sitekey already in wrangler.jsonc. Turnstile stays
+          # ENABLED so the suite exercises the real gate — including
+          # turnstile-resilience.spec.ts, which is meaningless with it off.
+          TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
+          VARS
+
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
 
