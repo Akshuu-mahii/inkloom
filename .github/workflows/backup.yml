@@ -1,0 +1,206 @@
+name: Backup
+
+# Runs OUTSIDE Cloudflare on purpose.
+#
+# A Worker cannot run pg_dump, and more importantly a backup living in the same
+# failure domain as the thing it backs up is not much of a backup. GitHub holds
+# the archives; Cloudflare and Neon hold the service. Losing either one leaves
+# the other intact.
+#
+# TRIGGERS ARE TRUSTED-ONLY, DELIBERATELY.
+# Only `schedule` and `workflow_dispatch` — never `pull_request`, and never
+# `pull_request_target`. Both of those can run code proposed by a fork, and this
+# workflow holds a database connection string and the key that decrypts every
+# backup. There is no version of "a PR can start the backup job" that is safe.
+
+on:
+  schedule:
+    # 02:10 UTC daily — an hour before the retention sweep at 03:20, so a backup
+    # always exists from BEFORE the sweep deleted anything.
+    - cron: "10 2 * * *"
+    # 04:00 UTC Sundays: decrypt and restore a real STORED archive.
+    - cron: "0 4 * * 0"
+  workflow_dispatch:
+    inputs:
+      restore_test:
+        description: Run the restore test instead of a backup
+        type: boolean
+        default: false
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+# Nothing here needs to write to the repository.
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Take it, verify it, encrypt it, store it off-site.
+  # ---------------------------------------------------------------------------
+  backup:
+    name: Back up ${{ matrix.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event.schedule != '0 4 * * 0' && github.event.inputs.restore_test != 'true'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [staging, production]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      # pg_dump refuses to dump a server newer than itself and Neon runs 17, so
+      # the runner's default client is not necessarily enough. Installing
+      # explicitly turns a confusing version error into a step that either works
+      # or fails loudly.
+      - name: Install a matching pg_dump
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          pg_dump --version
+
+      - name: Take, verify and encrypt
+        env:
+          DATABASE_URL: >-
+            ${{ matrix.environment == 'production'
+                && secrets.PRODUCTION_DATABASE_URL
+                || secrets.STAGING_DATABASE_URL }}
+          # The script refuses to write plaintext when CI is set, so a missing
+          # key fails the run rather than quietly shipping readable data.
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::notice::No DATABASE_URL for ${{ matrix.environment }} — skipping"
+            exit 0
+          fi
+          pnpm tsx scripts/backup.ts --out backups --label ${{ matrix.environment }}
+
+      # Retention lives here, declaratively. GitHub deletes the artifact when it
+      # expires, so nothing has to remember to prune and a pruning bug cannot
+      # quietly delete everything.
+      #
+      # Only `.enc` is uploaded. The glob is the last line of defence: if
+      # encryption were ever skipped, this step finds no files and fails rather
+      # than publishing a readable copy of the database.
+      - name: Store it off-site
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-${{ matrix.environment }}-${{ github.run_id }}
+          path: backups/*.sql.gz.enc
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Report failure
+        if: failure()
+        run: |
+          echo "::error title=Backup failed::${{ matrix.environment }} backup did not complete. \
+          A 'failed' row was recorded in job_runs, so the admin console shows it as degraded too."
+
+  # ---------------------------------------------------------------------------
+  # Weekly: decrypt and restore a REAL STORED archive into a real Postgres.
+  # ---------------------------------------------------------------------------
+  restore-test:
+    name: Restore test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event.schedule == '0 4 * * 0' || github.event.inputs.restore_test == 'true'
+    permissions:
+      contents: read
+      # To list and download artifacts from PREVIOUS runs, which is the whole
+      # point: testing an archive that has been sitting in storage.
+      actions: read
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: restore_test
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install a matching psql
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+
+      # The newest STORED staging archive, from an earlier run. Not a fresh one:
+      # a restore test that backs up and immediately restores proves only that
+      # the code works, never that the thing in storage is still usable.
+      - name: Fetch the newest stored archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p backups
+
+          id=$(gh api "repos/${{ github.repository }}/actions/artifacts?per_page=100" \
+                 --jq '[.artifacts[] | select(.name | startswith("backup-staging-"))
+                        | select(.expired == false)]
+                       | sort_by(.created_at) | reverse | .[0].id // empty')
+
+          if [ -z "$id" ]; then
+            echo "::error title=No stored backup::No unexpired backup-staging-* artifact exists. \
+            Either the nightly backup has never succeeded, or every archive has expired. \
+            Treat this as a backup outage, not a flaky test."
+            exit 1
+          fi
+
+          echo "Restoring stored artifact $id"
+          gh api "repos/${{ github.repository }}/actions/artifacts/$id/zip" > artifact.zip
+          unzip -o -q artifact.zip -d backups
+          ls -la backups
+
+      - name: Decrypt, restore and interrogate
+        env:
+          # The scratch Postgres, not staging. `restore-verify` only reads the
+          # live database, and only to report what a restore would have lost.
+          DATABASE_URL: postgresql://postgres:restore_test@localhost:5432/postgres
+          SCRATCH_DB: restore_verify
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+        run: pnpm tsx scripts/restore-verify.ts --dir backups
+
+      # The verdict has to land in the REAL database, because that is where the
+      # staleness signal and the admin console read from. `restore-verify` wrote
+      # its own row against the scratch Postgres, which vanishes with the runner.
+      - name: Record the verdict against staging
+        if: always()
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then exit 0; fi
+          pnpm tsx scripts/record-job.ts \
+            --job restore_test \
+            --status ${{ job.status == 'success' && 'ok' || 'failed' }} \
+            --note "weekly restore test of a stored archive, run ${{ github.run_id }}"
+
+      - name: Report failure
+        if: failure()
+        run: |
+          echo "::error title=Restore test failed::A stored backup could not be decrypted or \
+          restored, or the restored database failed its checks. Treat this as a backup outage: \
+          the archives exist but have not been shown to work."
