@@ -95,20 +95,41 @@ adminRoutes.get("/overview", requirePermission("admin.overview.read"), async (c)
   const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
   const monthAgo = new Date(now.getTime() - 30 * 86_400_000);
 
-  // One round trip rather than fifteen: this page is opened often and each
-  // sub-query is cheap and indexed.
+  /*
+   * ONE POPULATION, COUNTED THE SAME WAY EVERYWHERE.
+   *
+   * `total_users` excluded erased accounts and nothing else did, so the console
+   * reported 4 total users and 102 signups this week from the same table on the
+   * same screen. Staging had 98 erased accounts left by a load test and the
+   * erasure drills; production will accumulate them more slowly and the numbers
+   * will drift apart just as surely.
+   *
+   * Erased accounts are tombstones. They keep their row so the ledger and the
+   * audit trail still resolve, and they are not people using the platform — so
+   * nothing that describes the live platform counts them, including the funnel
+   * and the credit totals below.
+   *
+   * One round trip rather than fifteen: this page is opened often and each
+   * sub-query is cheap and indexed.
+   */
   const stats = await db.execute<Record<string, string>>(sql`
     SELECT
       (SELECT COUNT(*) FROM users WHERE status <> 'deleted')                        AS total_users,
       (SELECT COUNT(*) FROM users WHERE email_verified = true AND status <> 'deleted') AS verified_users,
-      (SELECT COUNT(*) FROM users WHERE created_at >= ${dayAgo})                    AS signups_today,
-      (SELECT COUNT(*) FROM users WHERE created_at >= ${weekAgo})                   AS signups_week,
-      (SELECT COUNT(*) FROM users WHERE created_at >= ${monthAgo})                  AS signups_month,
+      (SELECT COUNT(*) FROM users WHERE created_at >= ${dayAgo} AND status <> 'deleted')  AS signups_today,
+      (SELECT COUNT(*) FROM users WHERE created_at >= ${weekAgo} AND status <> 'deleted') AS signups_week,
+      (SELECT COUNT(*) FROM users WHERE created_at >= ${monthAgo} AND status <> 'deleted') AS signups_month,
       (SELECT COUNT(*) FROM users WHERE status = 'suspended')                       AS suspended_users,
       (SELECT COUNT(*) FROM sessions WHERE revoked_at IS NULL AND expires_at > now()) AS active_sessions,
-      (SELECT COALESCE(SUM(amount),0) FROM credit_ledger WHERE amount > 0)          AS credits_granted,
-      (SELECT COALESCE(SUM(balance),0) FROM credit_wallets)                         AS credits_outstanding,
-      (SELECT COUNT(*) FROM access_code_redemptions)                                AS successful_redemptions,
+      (SELECT COALESCE(SUM(l.amount),0) FROM credit_ledger l
+         JOIN users u ON u.id = l.user_id
+        WHERE l.amount > 0 AND u.status <> 'deleted')                               AS credits_granted,
+      (SELECT COALESCE(SUM(w.balance),0) FROM credit_wallets w
+         JOIN users u ON u.id = w.user_id
+        WHERE u.status <> 'deleted')                                                AS credits_outstanding,
+      (SELECT COUNT(*) FROM access_code_redemptions r
+         JOIN users u ON u.id = r.user_id
+        WHERE u.status <> 'deleted')                                                AS successful_redemptions,
       (SELECT COUNT(*) FROM security_events WHERE type = 'access_code_failed' AND created_at >= ${weekAgo}) AS blocked_redemptions,
       (SELECT COUNT(*) FROM access_code_campaigns WHERE status = 'enabled')         AS active_campaigns,
       (SELECT COUNT(*) FROM email_events WHERE status IN ('failed','bounced') AND created_at >= ${dayAgo}) AS email_failures,
@@ -148,15 +169,23 @@ adminRoutes.get("/overview", requirePermission("admin.overview.read"), async (c)
      * counted from real tables, so the steps are NOT nested subsets and a later
      * stage can legitimately exceed an earlier one. The Funnel component says so
      * rather than drawing an impossible bar.
+     *
+     * Every table-counted step excludes erased accounts, for the same reason
+     * the totals above do: a tombstone is not somebody who completed signup.
+     * Without that, the console drew "signup completed 102, 10200%" against a
+     * platform with four users.
      */
     db.execute<Record<string, string>>(sql`
       SELECT
         (SELECT COUNT(DISTINCT anonymous_id) FROM analytics_events WHERE name = 'landing_viewed')  AS visitors,
         (SELECT COUNT(DISTINCT anonymous_id) FROM analytics_events WHERE name = 'signup_started') AS signup_started,
-        (SELECT COUNT(*) FROM users)                                                               AS signup_completed,
-        (SELECT COUNT(*) FROM users WHERE email_verified = true)                                   AS email_verified,
-        (SELECT COUNT(DISTINCT user_id) FROM access_code_redemptions)                              AS code_redeemed,
-        (SELECT COUNT(DISTINCT user_id) FROM analytics_events WHERE name = 'dashboard_viewed')     AS dashboard_activated
+        (SELECT COUNT(*) FROM users WHERE status <> 'deleted')                                     AS signup_completed,
+        (SELECT COUNT(*) FROM users WHERE email_verified = true AND status <> 'deleted')           AS email_verified,
+        (SELECT COUNT(DISTINCT r.user_id) FROM access_code_redemptions r
+           JOIN users u ON u.id = r.user_id WHERE u.status <> 'deleted')                           AS code_redeemed,
+        (SELECT COUNT(DISTINCT a.user_id) FROM analytics_events a
+           JOIN users u ON u.id = a.user_id
+          WHERE a.name = 'dashboard_viewed' AND u.status <> 'deleted')                             AS dashboard_activated
     `),
     /*
      * Is the retention sweep still running?

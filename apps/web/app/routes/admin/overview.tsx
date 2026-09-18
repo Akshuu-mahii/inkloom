@@ -321,8 +321,19 @@ function Funnel({ steps }: { steps: Array<{ label: string; value: number }> }) {
     <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "0.5rem" }}>
       {steps.map((step, index) => {
         const previous = index > 0 ? steps[index - 1]!.value : null;
-        const conversion =
-          previous && previous > 0 ? Math.round((step.value / previous) * 100) : null;
+        /*
+         * A conversion above 100% is not a conversion, it is a mismatch.
+         *
+         * The first two steps count consent-gated analytics beacons and the
+         * rest count rows, so a later step can genuinely exceed an earlier one
+         * — anyone who declined the cookie notice is invisible to the first two
+         * and present in the rest. Dividing anyway printed "10200%", which
+         * reads as a broken page rather than as the caveat it is. A dash says
+         * "these two are not comparable" without pretending to a number.
+         */
+        const ratio = previous && previous > 0 ? (step.value / previous) * 100 : null;
+        const conversion = ratio === null || ratio > 100 ? null : Math.round(ratio);
+        const incomparable = ratio !== null && ratio > 100;
         return (
           <li
             key={step.label}
@@ -356,6 +367,14 @@ function Funnel({ steps }: { steps: Array<{ label: string; value: number }> }) {
               {conversion !== null && (
                 <span style={{ color: "var(--color-muted)", marginLeft: "0.375rem" }}>
                   {conversion}%
+                </span>
+              )}
+              {incomparable && (
+                <span
+                  style={{ color: "var(--color-faint)", marginLeft: "0.375rem" }}
+                  title="More than the step above it: the first two steps count only visitors who accepted analytics."
+                >
+                  —
                 </span>
               )}
             </span>
