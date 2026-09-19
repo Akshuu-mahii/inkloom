@@ -105,6 +105,42 @@ async function main() {
       "Cloudflare does not inherit them from the top-level block",
     );
 
+    /*
+     * Declared is not deployed.
+     *
+     * The file says what this repository intends; the REST API says what
+     * Cloudflare's scheduler will actually act on. A config that was never
+     * deployed, or a deploy that dropped the trigger, is indistinguishable from
+     * a healthy one when you only read the file — and that is precisely the
+     * failure this section exists to catch.
+     *
+     * Skipped rather than failed without a token: this suite is useful without
+     * Cloudflare credentials, and a check that cannot run must not read as a
+     * check that failed.
+     */
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+    const workerName = `inkloom-${targetEnv}`;
+
+    if (accountId && apiToken) {
+      const response = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}/schedules`,
+        { headers: { Authorization: `Bearer ${apiToken}` } },
+      );
+      const payload = (await response.json()) as {
+        success: boolean;
+        result?: { schedules?: Array<{ cron: string }> };
+      };
+      const registered = payload.result?.schedules?.map((x) => x.cron) ?? [];
+      check(
+        `and Cloudflare has it registered on the deployed Worker (${workerName})`,
+        payload.success && registered.includes(cron),
+        registered.length ? `registered: ${registered.join(", ")}` : "none registered",
+      );
+    } else {
+      console.log("  SKIP  registration on the deployed Worker (no Cloudflare credentials)");
+    }
+
     // =====================================================================
     console.log("\n=== 2. It has actually fired ===");
 

@@ -138,6 +138,10 @@ jobs:
         if: inputs.task == 'integrity'
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          # Lets the cron check ask Cloudflare what is actually registered on
+          # the deployed Worker, instead of trusting wrangler.jsonc.
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -o pipefail
           {
