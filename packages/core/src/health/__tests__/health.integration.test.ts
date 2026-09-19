@@ -77,8 +77,9 @@ describe("each fault is caught on its own", () => {
       sql`UPDATE job_runs SET finished_at = now() - interval '40 hours' WHERE job = ${BACKUP_JOB}`,
     );
     const report = await checkHealth(test.db);
-    expect(report.problems.map((p) => p.code)).toEqual([`job.${BACKUP_JOB}`]);
-    expect(report.problems[0].severity).toBe("critical");
+    expect(report.problems).toEqual([
+      expect.objectContaining({ code: `job.${BACKUP_JOB}`, severity: "critical" }),
+    ]);
   });
 
   // A week-long window: a failure of assurance, not of the thing assured.
@@ -87,8 +88,9 @@ describe("each fault is caught on its own", () => {
       sql`UPDATE job_runs SET finished_at = now() - interval '10 days' WHERE job = ${RESTORE_TEST_JOB}`,
     );
     const report = await checkHealth(test.db);
-    expect(report.problems.map((p) => p.code)).toEqual([`job.${RESTORE_TEST_JOB}`]);
-    expect(report.problems[0].severity).toBe("warning");
+    expect(report.problems).toEqual([
+      expect.objectContaining({ code: `job.${RESTORE_TEST_JOB}`, severity: "warning" }),
+    ]);
   });
 
   it("notices a wallet that disagrees with the ledger", async () => {
