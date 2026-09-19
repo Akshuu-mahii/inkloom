@@ -10,7 +10,6 @@ import { Hono } from "hono";
 import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
 import {
   accessCodeRedemption,
-  account as accountTable,
   creditLedger,
   dataExportRequest,
   newId,
@@ -21,19 +20,15 @@ import {
   user as userTable,
   userConsent,
 } from "@inkloom/db";
-import { displayDeviceLabel, sessionCookieName } from "@inkloom/core/auth";
+import { displayDeviceLabel } from "@inkloom/core/auth";
 import { templates } from "@inkloom/email";
 import type { Env } from "../context";
 import { apiError, ok, paged } from "../lib/response";
 import { body, query, validateBody, validateQuery } from "../middleware/validate";
 import { passesOwnerGate, requireAuth } from "../middleware/auth";
 import { isAdminRole } from "@inkloom/core/rbac";
-import { anonymiseAccount } from "@inkloom/core/privacy";
-import { verifyPassword } from "better-auth/crypto";
-import { defer } from "../lib/defer";
 import { rateLimit, bySubjectUser } from "../middleware/rate-limit";
 import {
-  deleteAccountSchema,
   notificationPreferencesSchema,
   paginationSchema,
   updateMeSchema,
@@ -503,113 +498,3 @@ meRoutes.post(
   },
 );
 
-// ---------------------------------------------------------------------------
-// DELETE /me  — erase this account
-// ---------------------------------------------------------------------------
-/**
- * Self-service erasure.
- *
- * The account becomes a tombstone rather than a deleted row: the append-only
- * audit trail and credit ledger reference this user id and cannot be rewritten,
- * so the id survives while everything identifying about it is destroyed. See
- * `@inkloom/core/privacy` for what is erased and what deliberately is not.
- *
- * Two guards, for two different failure modes:
- *
- *   - The PASSWORD, verified here rather than trusted from the session, so a
- *     borrowed laptop with a live session cannot destroy an account.
- *   - The LAST OWNER check, so nobody can lock the whole organisation out of
- *     its own admin console by erasing the only account that can reach it.
- *     Bootstrapping a new super-admin requires an existing verified account,
- *     so this is not recoverable from inside the product.
- */
-meRoutes.delete("/", validateBody(deleteAccountSchema), async (c) => {
-  const principal = c.get("principal")!;
-  const { db, audit, logger } = c.get("services");
-  const input = body<{ currentPassword: string }>(c);
-
-  const credential = await db.query.account.findFirst({
-    where: and(
-      eq(accountTable.userId, principal.userId),
-      eq(accountTable.providerId, "credential"),
-    ),
-  });
-
-  /*
-   * An account with no password — signed up with a social provider — cannot
-   * prove intent this way. Refusing is better than erasing on a session alone;
-   * they set a password first, which the dashboard already supports.
-   */
-  if (!credential?.password) {
-    throw apiError("REAUTH_REQUIRED", {
-      details: { reason: "Set a password before erasing your account." },
-    });
-  }
-
-  const proven = await verifyPassword({
-    hash: credential.password,
-    password: input.currentPassword,
-  }).catch(() => false);
-
-  if (!proven) {
-    await defer(
-      c,
-      audit.security({
-        type: "login_failed",
-        severity: "warning",
-        userId: principal.userId,
-        ipHash: c.get("ipHash"),
-        requestId: c.get("requestId"),
-        metadata: { flow: "account_erasure_wrong_password" },
-      }),
-      "security_event",
-    );
-    throw apiError("INVALID_CREDENTIALS", {
-      details: { currentPassword: "That password doesn't match your current one." },
-    });
-  }
-
-  if (isAdminRole(principal.role as never)) {
-    const others = await db.execute<{ n: string }>(sql`
-      SELECT COUNT(*)::text AS n FROM users
-       WHERE role = 'super_admin' AND status = 'active' AND id <> ${principal.userId}
-    `);
-    if (principal.role === "super_admin" && Number(others.rows[0]?.n ?? 0) === 0) {
-      throw apiError("FORBIDDEN", {
-        details: {
-          reason: "You are the only owner. Promote another owner before erasing this account.",
-        },
-      });
-    }
-  }
-
-  const result = await anonymiseAccount(db, audit, logger, {
-    userId: principal.userId,
-    actorType: "user",
-    actorId: principal.userId,
-    reason: "Self-service account erasure",
-    requestId: c.get("requestId"),
-    ipHash: c.get("ipHash"),
-  });
-
-  /*
-   * Clear the cookie on the way out.
-   *
-   * The session row is already gone, so the cookie is inert either way — but
-   * leaving it set means the browser keeps presenting a credential for an
-   * account that no longer exists, and the next page load looks like a bug
-   * rather than a completed erasure.
-   */
-  const response = ok(c, {
-    erased: true,
-    erasedAt: result.anonymizedAt,
-    message: "Your account has been erased. This cannot be undone.",
-  });
-  response.headers.append(
-    "set-cookie",
-    `${sessionCookieName(c.get("services").config.APP_URL.startsWith("https://"))}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${
-      c.get("services").config.APP_URL.startsWith("https://") ? "; Secure" : ""
-    }`,
-  );
-  return response;
-});

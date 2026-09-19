@@ -18,16 +18,21 @@ on:
         description: What to do
         required: true
         type: choice
-        options: [bootstrap-owner, report]
+        options: [bootstrap-owner, erase-account, report]
         default: report
       email:
-        description: For bootstrap-owner — the account to promote (must already exist and be verified)
+        description: The account to act on
         required: false
         type: string
       confirm:
-        description: For bootstrap-owner — type "promote to super admin"
+        description: bootstrap-owner → "promote to super admin" · erase-account → "erase this account"
         required: false
         type: string
+      apply:
+        description: For erase-account — actually erase. Left off, it is a dry run.
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-production
@@ -44,17 +49,22 @@ jobs:
 
     steps:
       - name: Confirmation phrase
-        if: inputs.task == 'bootstrap-owner'
+        if: inputs.task != 'report'
         run: |
-          if [ "$CONFIRM" != "promote to super admin" ]; then
+          case "$TASK" in
+            bootstrap-owner) expected="promote to super admin" ;;
+            erase-account)   expected="erase this account" ;;
+          esac
+          if [ "$CONFIRM" != "$expected" ]; then
             echo "::error::Confirmation phrase did not match. Nothing ran."
             exit 1
           fi
           if [ -z "$EMAIL" ]; then
-            echo "::error::bootstrap-owner needs an email."
+            echo "::error::$TASK needs an email."
             exit 1
           fi
         env:
+          TASK: ${{ inputs.task }}
           CONFIRM: ${{ inputs.confirm }}
           EMAIL: ${{ inputs.email }}
 
@@ -83,6 +93,16 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
         run: pnpm bootstrap:superadmin --email "${{ inputs.email }}"
+
+      # Erasure on request, which is what /privacy has always described. Dry run
+      # unless `apply` is ticked: the operator is acting on someone else's
+      # behalf, and erasing the wrong account is the failure that matters.
+      # `anonymiseAccount` refuses the last remaining owner on its own.
+      - name: Erase the account
+        if: inputs.task == 'erase-account'
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: pnpm account:erase --email "${{ inputs.email }}" ${{ inputs.apply && '--apply' || '' }}
 
       - name: Report
         env:

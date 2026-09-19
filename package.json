@@ -30,6 +30,7 @@
     "db:reset": "tsx scripts/reset-db.ts",
     "db:studio": "pnpm --filter @inkloom/db studio",
     "bootstrap:superadmin": "tsx scripts/bootstrap-superadmin.ts",
+    "account:erase": "tsx scripts/erase-account.ts",
     "credits:reconcile": "tsx scripts/reconcile-credits.ts",
     "codes:create": "tsx scripts/create-campaign.ts",
     "openapi:emit": "tsx scripts/emit-openapi.ts",

@@ -11,7 +11,8 @@
  *
  * Fixtures are throwaway accounts on an RFC-reserved domain, seeded directly
  * because signup sits behind Turnstile — which a script must not be able to
- * solve. They are erased through the product's own erasure endpoint at the end.
+ * solve. They are torn down directly at the end; there is no self-service
+ * erasure endpoint any more, and an acceptance run should not depend on one.
  *
  * Nothing here weakens a control to make a test easier. Where a limit has to be
  * narrowed to be observable, it is narrowed through the same `rate_limit_

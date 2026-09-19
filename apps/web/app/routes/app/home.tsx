@@ -45,6 +45,20 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
 
   const firstName = me.name.split(" ")[0] || "there";
 
+  /*
+   * How this account signs in, said in the words people use.
+   *
+   * "Which email did I use, and did I sign up with Google?" is the question
+   * behind most password-reset attempts, and the answer was only on /app/profile
+   * — a page you go looking for, after you already suspect something is wrong.
+   * It belongs where you land.
+   */
+  const signIn = me.providers.includes("google")
+    ? me.providers.includes("credential")
+      ? "Google or password"
+      : "Google"
+    : "Password";
+
   return (
     <>
       <TrackView event="dashboard_viewed" />
@@ -52,6 +66,21 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
         title={`Welcome back, ${firstName}`}
         description="Your early-access account. Generation opens later — your credits are waiting."
       />
+
+      <p
+        style={{
+          marginTop: "-1.25rem",
+          marginBottom: "1.75rem",
+          fontSize: "var(--text-fine)",
+          color: "var(--color-muted)",
+        }}
+      >
+        Signed in as <strong style={{ color: "var(--color-ink)" }}>{me.email}</strong>
+        {" \u00b7 "}
+        {signIn}
+        {" \u00b7 "}
+        <Link to="/app/profile">Manage account</Link>
+      </p>
 
       {justVerified && (
         <div style={{ marginBottom: "1.5rem" }}>

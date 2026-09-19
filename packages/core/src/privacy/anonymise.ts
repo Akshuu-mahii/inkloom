@@ -110,6 +110,29 @@ export async function anonymiseAccount(
       throw new Error(`Account already erased: ${userId}`);
     }
 
+    /*
+     * The last owner cannot be erased, and the check lives HERE.
+     *
+     * It used to sit in the self-service endpoint, which meant it protected
+     * exactly one caller. Bootstrapping a super-admin requires an existing
+     * verified account, so erasing the only one locks the organisation out of
+     * its own admin console with no way back from inside the product — a
+     * consequence that belongs to the operation, not to whoever happens to be
+     * invoking it. Inside the transaction, so a concurrent demotion cannot slip
+     * between the count and the erasure.
+     */
+    if (target.role === "super_admin") {
+      const others = await tx.execute<{ n: string }>(sql`
+        SELECT COUNT(*)::text AS n FROM users
+         WHERE role = 'super_admin' AND status = 'active' AND id <> ${userId}
+      `);
+      if (Number(others.rows[0]?.n ?? 0) === 0) {
+        throw new Error(
+          `Refusing to erase the only owner: ${userId}. Promote another super_admin first.`,
+        );
+      }
+    }
+
     const email = target.email.toLowerCase();
     const removed: Record<string, number> = {};
     const count = (result: { rowCount?: number | null }) => result.rowCount ?? 0;

@@ -30,6 +30,8 @@ import { base32 } from "@better-auth/utils/base32";
 import { createDb, type Database } from "@inkloom/db/client";
 import { account as accountTable, newId, user as userTable } from "@inkloom/db";
 import { jobHealth, runRetentionSweep, RETENTION_JOB } from "@inkloom/core/retention";
+import { AuditService } from "@inkloom/core/audit";
+import { anonymiseAccount } from "@inkloom/core/privacy";
 import { silentLogger } from "@inkloom/core/logger";
 import { describeTarget, required } from "./_env";
 
@@ -147,7 +149,6 @@ async function createVerifiedUser(db: Database, label: string) {
 async function removeUser(
   db: Database,
   userId: string,
-  email: string,
 ): Promise<"erased" | "retired" | "failed"> {
   // Already a tombstone (this run erased it as part of a check): leave it be,
   // or the fallback would overwrite the tombstone address it just set.
@@ -156,18 +157,17 @@ async function removeUser(
   );
   if (existing.rows[0]?.anonymized_at) return "erased";
 
-  const login = await call("/v1/auth/login", {
-    method: "POST",
-    body: { email, password: PASSWORD },
-  });
-
-  if (login.status === 200 && !login.data?.twoFactorRequired) {
-    const erased = await call("/v1/me", {
-      method: "DELETE",
-      cookies: login.cookies,
-      body: { currentPassword: PASSWORD, understood: true },
+  // Erasure is an operator action now — there is no endpoint to call — so this
+  // runs the same service `pnpm account:erase` does.
+  try {
+    await anonymiseAccount(db, new AuditService(db, silentLogger), silentLogger, {
+      userId,
+      actorType: "system",
+      reason: "Verification fixture cleanup",
     });
-    if (erased.status === 200) return "erased";
+    return "erased";
+  } catch {
+    // Falls through to the blunt cleanup below.
   }
 
   try {
@@ -528,12 +528,18 @@ async function main() {
     }
     check("a plain DELETE is still refused by the audit trigger", deleteRefused);
 
-    const erased = await call("/v1/me", {
-      method: "DELETE",
-      cookies: doraLogin.cookies,
-      body: { currentPassword: PASSWORD, understood: true },
-    });
-    check("erasure succeeds where DELETE cannot", erased.status === 200, `status=${erased.status}`);
+    let erased = false;
+    try {
+      await anonymiseAccount(db, new AuditService(db, silentLogger), silentLogger, {
+        userId: dora.userId,
+        actorType: "admin",
+        reason: "Erasure requested by the account holder",
+      });
+      erased = true;
+    } catch (error) {
+      check("erasure succeeds where DELETE cannot", false, String(error));
+    }
+    if (erased) check("erasure succeeds where DELETE cannot", true);
 
     const tomb = (
       await db.execute<{
@@ -605,8 +611,8 @@ async function main() {
     console.log(`  ..    5xx recorded all-time on staging: ${integrity.rows[0]?.five_xx}`);
   } finally {
     const outcomes: string[] = [];
-    for (const { userId, email } of created) {
-      const outcome = await removeUser(db, userId, email).catch(() => "failed" as const);
+    for (const { userId } of created) {
+      const outcome = await removeUser(db, userId).catch(() => "failed" as const);
       outcomes.push(`${userId.slice(0, 12)}…=${outcome}`);
     }
     if (outcomes.length) console.log(`\n  test accounts: ${outcomes.join("  ")}`);

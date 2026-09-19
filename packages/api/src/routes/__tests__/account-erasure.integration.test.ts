@@ -1,6 +1,11 @@
 /**
  * Erasing an account that has real history.
  *
+ * Erasure is an OPERATOR action now. There is no button and no endpoint: the
+ * self-service form and `DELETE /v1/me` were removed, and /privacy says what it
+ * has always said — write and ask, and we will do it. So these drive
+ * `anonymiseAccount` directly, which is what `pnpm account:erase` calls.
+ *
  * The easy version of this test uses a fresh account that has done nothing, and
  * proves nothing: a user with no audit trail and no ledger entries can simply be
  * deleted, and the hard part never comes up. The hard part is that
@@ -25,6 +30,7 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
+import { anonymiseAccount } from "@inkloom/core/privacy";
 import { createTestApp, extractToken, type TestApp } from "../../../../../tests/helpers/app";
 
 let app: TestApp;
@@ -111,11 +117,13 @@ async function buildHistory(email: string, cookies: string[]) {
   return userId;
 }
 
-const erase = (cookies: string[], password = ACCOUNT.password) =>
-  app.json("/v1/me", {
-    method: "DELETE",
-    cookies,
-    body: JSON.stringify({ currentPassword: password, understood: true }),
+/** What `pnpm account:erase --apply` runs, with the same actor attribution. */
+const erase = (userId: string) =>
+  anonymiseAccount(app.db.db, app.services.audit, app.services.logger, {
+    userId,
+    actorType: "admin",
+    actorId: null,
+    reason: "Erasure requested by the account holder",
   });
 
 /**
@@ -163,15 +171,15 @@ describe("erasing an account that has audit and ledger history", () => {
 
     await expectAppendOnlyRefusal(app.db.db.execute(sql`DELETE FROM users WHERE id = ${userId}`));
 
-    const result = await erase(cookies);
-    expect(result.status, "erasure must succeed where deletion cannot").toBe(200);
-    expect((result.data as { erased?: boolean }).erased).toBe(true);
+    const result = await erase(userId);
+    expect(result.userId, "erasure must succeed where deletion cannot").toBe(userId);
+    expect(result.anonymizedAt).toBeInstanceOf(Date);
   });
 
   it("leaves nothing that identifies the person", async () => {
     const cookies = await signupAndVerify();
     const userId = await buildHistory(ACCOUNT.email, cookies);
-    await erase(cookies);
+    await erase(userId);
 
     const row = await scalar(sql`
       SELECT name, email, normalized_email, status, image::text AS image,
@@ -196,8 +204,8 @@ describe("erasing an account that has audit and ledger history", () => {
 
   it("scrubs the address out of every table that held it", async () => {
     const cookies = await signupAndVerify();
-    await buildHistory(ACCOUNT.email, cookies);
-    await erase(cookies);
+    const userId = await buildHistory(ACCOUNT.email, cookies);
+    await erase(userId);
 
     /*
      * The address, hunted across every table that can hold one — including the
@@ -223,7 +231,7 @@ describe("erasing an account that has audit and ledger history", () => {
   it("destroys every means of authenticating, for good", async () => {
     const cookies = await signupAndVerify();
     const userId = await buildHistory(ACCOUNT.email, cookies);
-    await erase(cookies);
+    await erase(userId);
 
     const left = await scalar(sql`
       SELECT
@@ -263,8 +271,8 @@ describe("erasing an account that has audit and ledger history", () => {
 
   it("frees the address for a genuinely new account", async () => {
     const cookies = await signupAndVerify();
-    await buildHistory(ACCOUNT.email, cookies);
-    await erase(cookies);
+    const userId = await buildHistory(ACCOUNT.email, cookies);
+    await erase(userId);
 
     // Someone erasing an account and later changing their mind must not find
     // their own address permanently unusable — the tombstone holds a different
@@ -295,7 +303,7 @@ describe("the record survives the person", () => {
     `);
     expect(Number(before.rows)).toBeGreaterThan(0);
 
-    await erase(cookies);
+    await erase(userId);
 
     const after = await scalar(sql`
       SELECT COUNT(*)::text AS rows, COALESCE(SUM(amount),0)::text AS total
@@ -328,7 +336,7 @@ describe("the record survives the person", () => {
       sql`SELECT COUNT(*)::text AS n FROM audit_events WHERE actor_id = ${userId}`,
     );
 
-    await erase(cookies);
+    await erase(userId);
 
     const after = await scalar(
       sql`SELECT COUNT(*)::text AS n FROM audit_events WHERE actor_id = ${userId}`,
@@ -343,7 +351,7 @@ describe("the record survives the person", () => {
   it("records the erasure itself, without writing the address into it", async () => {
     const cookies = await signupAndVerify();
     const userId = await buildHistory(ACCOUNT.email, cookies);
-    await erase(cookies);
+    await erase(userId);
 
     const entry = await scalar(sql`
       SELECT action, target_id, reason, metadata::text AS metadata
@@ -365,7 +373,7 @@ describe("the record survives the person", () => {
 
   it("leaves the history of OTHER users completely alone", async () => {
     const mine = await signupAndVerify();
-    await buildHistory(ACCOUNT.email, mine);
+    const mineId = await buildHistory(ACCOUNT.email, mine);
 
     const theirs = await signupAndVerify("grace@example.test");
     const otherId = await buildHistory("grace@example.test", theirs);
@@ -376,7 +384,7 @@ describe("the record survives the person", () => {
              (SELECT COUNT(*) FROM users WHERE id = ${otherId} AND status = 'active') AS live
     `);
 
-    await erase(mine);
+    await erase(mineId);
 
     const after = await scalar(sql`
       SELECT (SELECT COUNT(*) FROM credit_ledger WHERE user_id = ${otherId}) AS ledger,
@@ -392,69 +400,64 @@ describe("the record survives the person", () => {
 // ===========================================================================
 
 describe("erasure refuses when it should", () => {
-  it("refuses without the password, even on a live session", async () => {
+  // The product used to carry this as a form on /app/profile. It was removed,
+  // and this is what stops it coming back by accident: an endpoint that is
+  // merely unlinked is still an endpoint.
+  it("has no self-service endpoint left", async () => {
+    const cookies = await signupAndVerify();
+    const result = await app.json("/v1/me", {
+      method: "DELETE",
+      cookies,
+      body: JSON.stringify({ currentPassword: ACCOUNT.password, understood: true }),
+    });
+
+    expect([404, 405], `unexpected status ${result.status}`).toContain(result.status);
+    expect((await app.json("/v1/me", { cookies })).status).toBe(200);
+  });
+
+  it("refuses to erase the last remaining owner", async () => {
     const cookies = await signupAndVerify();
     const userId = await buildHistory(ACCOUNT.email, cookies);
+    await app.db.db.execute(sql`UPDATE users SET role = 'super_admin' WHERE id = ${userId}`);
 
-    const wrong = await erase(cookies, "not-the-password");
-    expect(wrong.status).toBe(401);
+    // Otherwise the organisation locks itself out of its own console, and
+    // bootstrapping a replacement owner needs an existing verified account.
+    await expect(erase(userId)).rejects.toThrow(/only owner/i);
 
-    // Nothing happened: a borrowed laptop must not be able to do this.
     const row = await scalar(
       sql`SELECT status, anonymized_at::text AS anonymized_at FROM users WHERE id = ${userId}`,
     );
     expect(row.status).toBe("active");
     expect(row.anonymized_at).toBeNull();
-    expect((await app.json("/v1/me", { cookies })).status).toBe(200);
   });
 
-  it("refuses without an explicit acknowledgement", async () => {
+  it("erases an owner once another one exists", async () => {
     const cookies = await signupAndVerify();
+    const userId = await buildHistory(ACCOUNT.email, cookies);
+    await signupAndVerify("grace@example.test");
+    const otherId = await userIdFor("grace@example.test");
+    await app.db.db.execute(
+      sql`UPDATE users SET role = 'super_admin' WHERE id IN (${userId}, ${otherId})`,
+    );
 
-    const result = await app.json("/v1/me", {
-      method: "DELETE",
-      cookies,
-      body: JSON.stringify({ currentPassword: ACCOUNT.password }),
-    });
-
-    expect(result.status, "intent must be stated, not inferred from a click").toBe(400);
-    expect((await app.json("/v1/me", { cookies })).status).toBe(200);
+    await expect(erase(userId)).resolves.toMatchObject({ userId });
   });
 
-  it("refuses an anonymous caller outright", async () => {
-    const result = await app.json("/v1/me", {
-      method: "DELETE",
-      body: JSON.stringify({ currentPassword: ACCOUNT.password, understood: true }),
-    });
-    expect(result.status).toBe(401);
-  });
-
-  it("refuses to erase the last remaining owner", async () => {
-    const cookies = await signupAndVerify();
-    const userId = await userIdFor(ACCOUNT.email);
-    await app.db.db.execute(sql`UPDATE users SET role = 'super_admin' WHERE id = ${userId}`);
-
-    const result = await erase(cookies);
-
-    // Otherwise the organisation locks itself out of its own console, and
-    // bootstrapping a replacement owner needs an existing verified account.
-    expect(result.status).toBe(403);
-    const row = await scalar(sql`SELECT status FROM users WHERE id = ${userId}`);
-    expect(row.status).toBe("active");
+  it("refuses an account that does not exist", async () => {
+    await expect(erase("usr_nope")).rejects.toThrow(/No such account/i);
   });
 
   it("cannot be run twice", async () => {
     const cookies = await signupAndVerify();
     const userId = await buildHistory(ACCOUNT.email, cookies);
-    expect((await erase(cookies)).status).toBe(200);
+    await erase(userId);
 
     const anonymizedAt = (
       await scalar(sql`SELECT anonymized_at::text AS a FROM users WHERE id = ${userId}`)
     ).a;
 
-    // The session is dead, so a second attempt cannot even authenticate — and
-    // the first erasure's timestamp must not be overwritten.
-    expect((await erase(cookies)).status).toBe(401);
+    // The first erasure's timestamp must not be overwritten by a second run.
+    await expect(erase(userId)).rejects.toThrow(/already erased/i);
     const after = (
       await scalar(sql`SELECT anonymized_at::text AS a FROM users WHERE id = ${userId}`)
     ).a;
