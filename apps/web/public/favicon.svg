@@ -1,19 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Inkloom">
   <!--
-    The Inkloom mark, square, for tabs and app icons.
+    The Inkloom mark for browser tabs. The lemniscate from
+    components/infinity-mark.tsx, which is the figure the product actually
+    animates — not the wordmark's "oo", which is a different shape.
 
-    Square and PADDED on purpose: a maskable icon is cropped to a circle on
-    Android and to a squircle on iOS, so the mark sits inside the central 80%
-    where nothing can be cut off. The paper ground is part of it — a
-    transparent icon inherits whatever the launcher puts behind it, and on a
-    dark tab strip an orange loop on black is not this brand.
+    Nearly full-bleed, unlike icon-512.png. That file is declared "maskable" and
+    is cropped to a circle on Android and a squircle on iOS, so its mark has to
+    stay inside the central 80%. A favicon is never cropped, and at 16px the
+    same padding throws away a third of the only sixteen pixels the mark gets.
+    Two files, two jobs.
 
-    The path is the lemniscate from components/infinity-mark.tsx. It used to be
-    the wordmark's "oo" — two rings — which is a different figure from the one
-    the product actually uses.
+    The paper ground is part of the icon rather than transparency: a transparent
+    favicon inherits the tab strip, and an orange loop floating on a dark grey
+    Chrome tab is not this brand.
   -->
-  <rect width="512" height="512" fill="#F1EDE3"/>
-  <g transform="translate(70.00 155.93) scale(0.76386)">
+  <rect width="512" height="512" rx="112" fill="#F1EDE3"/>
+  <g transform="translate(25.9 132.2) scale(0.945)">
     <path d="M0 131C0 58.5 58.5 0.5 131.5 0.5C179.5 0.5 218.5 26.5 244 69L296 157C310.5 178.5 331.5 188.5 354.5 188.5C385.5 188.5 409 163.5 409 131C409 98.5 385.5 73.5 354.5 73.5C326.5 73.5 306 90 288 116L249 46.5C278 17 313 0.5 355.5 0.5C428.5 0.5 487 58.5 487 131C487 203.5 428.5 261.5 355.5 261.5C303.5 261.5 263 235 234 190L188 106C173.5 83 155.5 73.5 132.5 73.5C101.5 73.5 78 98.5 78 131C78 163.5 101.5 188.5 132.5 188.5C159.5 188.5 179 171 196 142L235 215.5C207 244 171 261.5 131.5 261.5C58.5 261.5 0 203.5 0 131Z" fill="#FF6124"/>
   </g>
 </svg>

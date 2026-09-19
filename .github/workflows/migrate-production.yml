@@ -1,0 +1,169 @@
+name: Migrate production database
+
+# MANUAL ONLY, and deliberately separate from Deploy.
+#
+# The production deploy job migrates and then ships code, which is the right
+# order for a release but useless when the schema has to move on its own —
+# bringing a new database up before anything is serving from it, or applying a
+# migration whose code went out in an earlier release. Running the full deploy
+# for that would rebuild and republish the Worker, and re-attach its routes, to
+# accomplish a schema change.
+#
+# There is no push trigger and there never should be. A migration is the one
+# step of a deploy that a rollback cannot undo.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type "migrate production" to confirm
+        required: true
+        type: string
+      allow_destructive:
+        description: Apply migrations that are NOT backward-compatible (read the plan first)
+        required: false
+        type: boolean
+        default: false
+
+# The same group the Deploy workflow uses for its production job, so a migration
+# and a deploy can never overlap. Queued, not cancelled: cancelling a job
+# mid-migration is how a schema ends up half-applied.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Migrate production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Required reviewers are configured on this GitHub environment, so the job
+    # pauses for approval before its first step — including before it reads the
+    # production connection string.
+    environment:
+      name: production
+      url: https://inkloom.art
+
+    steps:
+      # A typed phrase, not a checkbox. The dispatch form is three clicks from
+      # anywhere in the repository and "production" is the default-looking
+      # option in the environment dropdown next door.
+      - name: Confirmation phrase
+        run: |
+          if [ "$CONFIRM" != "migrate production" ]; then
+            echo "::error::Confirmation phrase did not match. Nothing ran."
+            exit 1
+          fi
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      - name: Required secrets are present
+        run: |
+          missing=""
+          for name in PRODUCTION_DATABASE_URL CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            eval "value=\$$name"
+            [ -z "$value" ] && missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing"
+            exit 1
+          fi
+          echo "All required secrets present."
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # Catches a migration file edited after it was generated, or a journal
+      # entry out of order — both of which the runner would otherwise apply or
+      # silently skip. Touches no database.
+      - name: Migration files are self-consistent
+        run: pnpm db:check
+
+      # THE GATE. Resolves the Hyperdrive binding the production Worker actually
+      # uses, asks Cloudflare for its origin, and refuses unless DATABASE_URL is
+      # that exact database — with a distinct error if it turns out to be
+      # staging. Nothing below this step can run against the wrong database, and
+      # nothing at or above it writes.
+      - name: Confirm the target is the production database
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm db:verify-target production
+
+      # The plan, and the backward-compatibility check, in one step: it prints
+      # the SQL of everything pending and fails if any of it would break the
+      # version currently deployed. Migrations run before code, so that window
+      # is real. `allow_destructive` is the documented way past it, after a
+      # human has read the SQL this step just printed.
+      - name: Migration plan
+        id: plan
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          ALLOW_DESTRUCTIVE: ${{ inputs.allow_destructive }}
+        run: |
+          set -o pipefail
+          flags="--sql"
+          [ "$ALLOW_DESTRUCTIVE" = "true" ] && flags="$flags --allow-destructive"
+          {
+            echo "### Migration plan"
+            echo ""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          pnpm db:status $flags 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # `pnpm db:migrate` exits non-zero on the first failing statement and the
+      # job stops here. Drizzle wraps each migration in a transaction, so a
+      # failure leaves that migration unapplied rather than half-applied — but
+      # earlier migrations in the same run have already committed, which is why
+      # the plan above is worth reading.
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: pnpm db:migrate
+
+      # Not a repeat of the runner's own success message. This asserts that
+      # every table and column in the Drizzle schema exists in the database,
+      # that the hand-written views are there, and that the append-only triggers
+      # on the credit ledger and the audit log are present AND enabled — the
+      # things that make those tables evidence rather than just storage.
+      #
+      # It seeds nothing. A fresh production database is legitimately empty and
+      # the row counts it prints are a report, not an expectation.
+      - name: Verify schema and readiness
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          set -o pipefail
+          {
+            echo ""
+            echo "### Post-migration verification"
+            echo ""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          pnpm db:status --verify 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # The ledger must balance against the wallets before anyone trusts a
+      # credit figure. Report-only: --repair is never passed here.
+      - name: Reconciliation reports no drift
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: pnpm credits:reconcile
+
+      - name: Record the migration
+        run: |
+          {
+            echo ""
+            echo "Migrated from commit \`${{ github.sha }}\` by @${{ github.actor }}."
+            echo ""
+            echo "The Worker was NOT redeployed. Ship the matching code with"
+            echo "\`Actions -> Deploy -> production\` when it is ready."
+          } >> "$GITHUB_STEP_SUMMARY"

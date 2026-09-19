@@ -24,6 +24,8 @@
     "db:generate": "pnpm --filter @inkloom/db generate",
     "db:migrate": "pnpm --filter @inkloom/db migrate",
     "db:check": "pnpm --filter @inkloom/db check",
+    "db:status": "tsx scripts/migration-status.ts",
+    "db:verify-target": "tsx scripts/verify-db-target.ts",
     "db:seed": "tsx scripts/seed.ts",
     "db:reset": "tsx scripts/reset-db.ts",
     "db:studio": "pnpm --filter @inkloom/db studio",
