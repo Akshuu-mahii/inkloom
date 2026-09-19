@@ -18,7 +18,7 @@ on:
         description: What to do
         required: true
         type: choice
-        options: [bootstrap-owner, erase-account, acceptance, integrity, report]
+        options: [bootstrap-owner, erase-account, acceptance, integrity, retention-sweep, report]
         default: report
       email:
         description: The account to act on
@@ -153,6 +153,26 @@ jobs:
           pnpm tsx scripts/cron-acceptance.ts production 2>&1 | tee -a "$GITHUB_STEP_SUMMARY" || rc=1
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           exit $rc
+
+      # The sweep normally runs from the Worker's cron at 03:20 UTC. This is for
+      # the case the cron does not cover: a freshly deployed environment where
+      # it has not come round yet, so `retention_sweep` reads as "never run" and
+      # the console is degraded for a promise nothing has yet had a chance to
+      # keep. Idempotent, and a no-op on a database with nothing old enough.
+      - name: Run the retention sweep
+        if: inputs.task == 'retention-sweep'
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          set -o pipefail
+          {
+            echo "### Retention sweep"
+            echo ""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          pnpm retention:sweep --dry-run 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          pnpm retention:sweep 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Report
         env:
