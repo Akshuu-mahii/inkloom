@@ -53,6 +53,16 @@ const JOB_SEVERITY: Record<string, Severity> = {
 
 export interface HealthOptions {
   /**
+   * Whether backups are expected to be running at all.
+   *
+   * False while the schedules are deliberately paused. A paused job and a
+   * broken one look identical from here — both are simply overdue — and
+   * reporting the paused one as a problem every morning is how an alert
+   * becomes something people filter. It is still REPORTED, as context, so a
+   * pause nobody meant to leave in place is visible rather than silent.
+   */
+  backupsExpected?: boolean;
+  /**
    * The mail provider's daily send limit, or 0 to not watch it.
    *
    * Passed in rather than read from the environment: inside a Worker,
@@ -69,12 +79,16 @@ export async function checkHealth(
   const problems: HealthProblem[] = [];
   const context: Record<string, string> = {};
 
+  const backupsExpected = options.backupsExpected ?? true;
+  const paused = new Set(backupsExpected ? [] : [BACKUP_JOB, RESTORE_TEST_JOB]);
+
   for (const job of [BACKUP_JOB, RETENTION_JOB, RESTORE_TEST_JOB]) {
     const health = await jobHealth(db, job, JOB_MAX_AGE_HOURS[job]);
-    context[job] =
+    const age =
       health.ageHours === null ? "never run" : `${health.ageHours}h ago, ${health.lastStatus}`;
+    context[job] = paused.has(job) ? `${age} (PAUSED)` : age;
 
-    if (!health.healthy) {
+    if (!health.healthy && !paused.has(job)) {
       problems.push({
         severity: JOB_SEVERITY[job] ?? "warning",
         code: `job.${job}`,

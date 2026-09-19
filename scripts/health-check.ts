@@ -34,6 +34,7 @@ async function main() {
 
     const report = await checkHealth(db, {
       emailDailyQuota: Number(optional("EMAIL_DAILY_QUOTA", "100")),
+      backupsExpected: optional("BACKUPS_EXPECTED", "true") === "true",
     });
 
     for (const [key, value] of Object.entries(report.context)) {

@@ -246,3 +246,44 @@ async function campaign(spec: { used: number; cap: number | null; status?: strin
 async function seedUser(): Promise<string> {
   return (await createTestUser(test.db)).id;
 }
+
+describe("backups that are paused on purpose", () => {
+  /*
+   * A paused job and a broken one are indistinguishable from the database: both
+   * are simply overdue. Alerting on a pause every morning is how an alert stops
+   * being read, and the one that matters then arrives in a folder nobody opens.
+   */
+  it("does not raise a problem for an overdue backup while backups are paused", async () => {
+    await test.db.execute(
+      sql`UPDATE job_runs SET finished_at = now() - interval '40 hours' WHERE job = ${BACKUP_JOB}`,
+    );
+    const report = await checkHealth(test.db, { backupsExpected: false });
+    expect(report.problems.map((p) => p.code)).toEqual([]);
+  });
+
+  // Silent is not the same as invisible: a pause left in place by accident has
+  // to be findable, so it is still reported as context.
+  it("still says so, so a forgotten pause is visible", async () => {
+    const report = await checkHealth(test.db, { backupsExpected: false });
+    expect(report.context[BACKUP_JOB]).toContain("PAUSED");
+    expect(report.context[RESTORE_TEST_JOB]).toContain("PAUSED");
+  });
+
+  // Retention is a Cloudflare cron and keeps running regardless, so pausing
+  // the GitHub backups must not silence it.
+  it("still alerts on the retention sweep, which is not paused", async () => {
+    await test.db.execute(
+      sql`UPDATE job_runs SET finished_at = now() - interval '40 hours' WHERE job = ${RETENTION_JOB}`,
+    );
+    const report = await checkHealth(test.db, { backupsExpected: false });
+    expect(report.problems.map((p) => p.code)).toEqual([`job.${RETENTION_JOB}`]);
+  });
+
+  it("goes back to alerting the moment backups are expected again", async () => {
+    await test.db.execute(
+      sql`UPDATE job_runs SET finished_at = now() - interval '40 hours' WHERE job = ${BACKUP_JOB}`,
+    );
+    const report = await checkHealth(test.db, { backupsExpected: true });
+    expect(report.problems.map((p) => p.code)).toEqual([`job.${BACKUP_JOB}`]);
+  });
+});

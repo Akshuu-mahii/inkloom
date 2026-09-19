@@ -181,6 +181,11 @@
         // email — so the mail quota IS the signup capacity, and running out is
         // silent: the account is created and the message never leaves.
         "EMAIL_DAILY_QUOTA": "100",
+        // Backup schedules are paused while Actions minutes are scarce — see
+        // the note at the top of .github/workflows/backup.yml. Set to "true" at
+        // the same moment those crons are uncommented, or the nightly health
+        // check will report a deliberate pause as an overdue job.
+        "BACKUPS_EXPECTED": "false",
         "INKLOOM_RELEASE": "v1.0.0",
       },
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "4fc8b31d98b642539478843fb51e677c" }],

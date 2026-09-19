@@ -109,6 +109,15 @@ export const envSchema = z.object({
    * sent. 0 turns the check off.
    */
   EMAIL_DAILY_QUOTA: z.coerce.number().int().min(0).default(100),
+  /**
+   * Whether the nightly backup and the weekly restore drill are expected to be
+   * running. False while their schedules are deliberately paused, so a pause is
+   * reported as a pause rather than alerted as a failure every morning.
+   */
+  BACKUPS_EXPECTED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
   SENTRY_DSN: z.string().optional(),
   SENTRY_ENVIRONMENT: z.string().optional(),
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.1),

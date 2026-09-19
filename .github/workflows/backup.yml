@@ -13,13 +13,32 @@ name: Backup
 # workflow holds a database connection string and the key that decrypts every
 # backup. There is no version of "a PR can start the backup job" that is safe.
 
+# SCHEDULES ARE PAUSED, on purpose and temporarily.
+#
+# The account's Actions minutes ran out and the budget that replaced them is
+# three dollars. Production currently holds two accounts and one campaign — the
+# owner's own — so a night without an archive costs about fifteen minutes of
+# re-running migrations, seed and bootstrap, and nothing that cannot be rebuilt.
+# That stops being true the moment a real person signs up.
+#
+# TO TURN BACK ON, when users arrive: uncomment the two cron lines below and set
+# BACKUPS_EXPECTED to "true" in apps/web/wrangler.jsonc, then deploy. The second
+# half matters — without it the nightly health check reports a paused backup as
+# an overdue one, and starts emailing about it every morning.
+#
+# Both jobs remain runnable by hand from the Actions tab meanwhile.
 on:
   schedule:
     # 02:10 UTC daily — an hour before the retention sweep at 03:20, so a backup
     # always exists from BEFORE the sweep deleted anything.
-    - cron: "10 2 * * *"
+    # - cron: "10 2 * * *"
     # 04:00 UTC Sundays: decrypt and restore a real STORED archive.
-    - cron: "0 4 * * 0"
+    # - cron: "0 4 * * 0"
+    #
+    # A schedule block cannot be empty, so this placeholder fires on 29 February
+    # at 04:00 — a date that does not exist in 2026 or 2027. It is a parked
+    # trigger, not a job anybody is waiting for.
+    - cron: "0 4 29 2 *"
   workflow_dispatch:
     inputs:
       restore_test:
