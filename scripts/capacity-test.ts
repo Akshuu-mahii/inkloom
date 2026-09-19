@@ -272,7 +272,19 @@ async function main() {
       ["health", [25, 100, 300, 500]],
       ["browse", [25, 50, 100, 200, 500]],
       ["me", [25, 50, 100, 200]],
-      ["login", [10, 25, 50, 100, 200, 300]],
+      ["login", [10, 25, 50, 100, 200, 300, 500]],
+      /*
+       * Signup, measured with Turnstile verification switched OFF on staging
+       * and restored immediately afterwards — a generator cannot solve a
+       * challenge, and that is the control working rather than a gap in it.
+       *
+       * So this is signup MINUS one outbound request to Cloudflare. The
+       * `turnstile` scenario measures that request on its own, and the two are
+       * reported separately rather than summed into a number that pretends to
+       * be a measurement.
+       */
+      ["signup", [10, 25, 50, 100, 200, 300]],
+      ["turnstile", [25, 100]],
       ["mixed", [25, 50, 100, 200, 500]],
     ];
 

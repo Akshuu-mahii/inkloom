@@ -10,6 +10,12 @@ on:
   pull_request:
     branches: [main, master]
   workflow_dispatch:
+    inputs:
+      run_e2e:
+        description: Also run the end-to-end suite (advisory; see the note on the e2e job)
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -230,6 +236,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: [static]
+    #
+    # OFF BY DEFAULT, on cost grounds, and this is a measured decision.
+    #
+    # Four sharded runners were 60% of the billing for every CI run — more than
+    # the six gates that actually block a merge, put together — to produce a
+    # result that cannot pass on a Linux runner (see the note below) and gates
+    # nothing when it does. The account ran out of Actions minutes in a single
+    # day of ordinary work, which stopped the nightly BACKUP: a suite that
+    # cannot go green was crowding out the job that protects the data.
+    #
+    # It is one checkbox away rather than deleted, because the suite is not the
+    # problem — it passes in full on a developer's machine — and the day the
+    # loopback issue is solved this should go back to running on every push.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_e2e
     #
     # ADVISORY, NOT BLOCKING — and this is a known gap rather than a shrug.
     #
