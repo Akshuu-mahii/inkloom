@@ -1,0 +1,99 @@
+name: Production operations
+
+# One-off operator tasks that need the production database.
+#
+# They live in a workflow because the production connection string is a GitHub
+# secret and deliberately does not exist on anyone's laptop. Dispatch only, one
+# task per run, each with its own typed confirmation.
+#
+# Deliberately NOT here: creating an access-code campaign. That needs
+# ACCESS_CODE_PEPPER, which is a Cloudflare Worker secret, and copying it into
+# GitHub to save a few clicks would double the number of places a pepper lives
+# for the rest of the product's life. Campaigns are created from the admin
+# console, which already holds the pepper it needs.
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: What to do
+        required: true
+        type: choice
+        options: [bootstrap-owner, report]
+        default: report
+      email:
+        description: For bootstrap-owner — the account to promote (must already exist and be verified)
+        required: false
+        type: string
+      confirm:
+        description: For bootstrap-owner — type "promote to super admin"
+        required: false
+        type: string
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  run:
+    name: ${{ inputs.task }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: production
+      url: https://inkloom.art
+
+    steps:
+      - name: Confirmation phrase
+        if: inputs.task == 'bootstrap-owner'
+        run: |
+          if [ "$CONFIRM" != "promote to super admin" ]; then
+            echo "::error::Confirmation phrase did not match. Nothing ran."
+            exit 1
+          fi
+          if [ -z "$EMAIL" ]; then
+            echo "::error::bootstrap-owner needs an email."
+            exit 1
+          fi
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          EMAIL: ${{ inputs.email }}
+
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      # The same gate every other production job uses. A task that promotes an
+      # account to super_admin has no business running against a database nobody
+      # has confirmed the identity of.
+      - name: Confirm the target is the production database
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm db:verify-target production
+
+      # The script refuses if the account does not exist, is unverified, or if a
+      # super_admin already exists — none of which this workflow overrides. It
+      # writes an audit event with actor `system` and a reason, so the first
+      # privileged act on this database is as traceable as every later one.
+      - name: Promote the owner
+        if: inputs.task == 'bootstrap-owner'
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: pnpm bootstrap:superadmin --email "${{ inputs.email }}"
+
+      - name: Report
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          set -o pipefail
+          {
+            echo "### Production"
+            echo ""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          pnpm db:status --verify 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          pnpm credits:reconcile 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
