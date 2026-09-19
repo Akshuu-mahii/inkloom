@@ -372,6 +372,65 @@ export function passwordAdded(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Operational alert — to the operator, never to a user
+// ---------------------------------------------------------------------------
+/**
+ * Something is wrong with production.
+ *
+ * Addressed to whoever runs the platform, so it skips the reassurance and the
+ * call to action that every other template carries. The subject line names the
+ * worst problem rather than saying "alert", because this arrives on a phone at
+ * an unhelpful hour and the subject is often all that gets read.
+ */
+export function operationalAlert(
+  ctx: TemplateContext,
+  data: {
+    environment: string;
+    problems: Array<{ severity: string; summary: string; detail: string }>;
+    context: Record<string, string>;
+    source: string;
+  },
+): RenderedEmail {
+  const critical = data.problems.filter((p) => p.severity === "critical").length;
+  const headline = data.problems[0]?.summary ?? "A problem was detected";
+  const subject =
+    data.problems.length === 1
+      ? `[${data.environment}] ${headline}`
+      : `[${data.environment}] ${headline} (+${data.problems.length - 1} more)`;
+
+  const list = data.problems
+    .map(
+      (p) =>
+        `<li style="margin:0 0 10px 0;"><strong>${escapeHtml(p.summary)}</strong>` +
+        `${p.severity === "critical" ? " — critical" : ""}<br>${escapeHtml(p.detail)}</li>`,
+    )
+    .join("");
+
+  const figures = Object.entries(data.context)
+    .map(([k, v]) => `${escapeHtml(k.replace(/_/g, " "))}: ${escapeHtml(v)}`)
+    .join("<br>");
+
+  return {
+    ...build(ctx, {
+      title: subject,
+      preview:
+        critical > 0
+          ? `${critical} critical problem(s) on ${data.environment}.`
+          : `${data.problems.length} problem(s) on ${data.environment}.`,
+      paragraphs: [
+        `Checked by ${escapeHtml(data.source)}.`,
+        `<ul style="margin:0 0 12px 0;padding-left:18px;">${list}</ul>`,
+        `<strong>At the time of the check</strong><br>${figures}`,
+      ],
+      footnote:
+        "You are receiving this because you are the registered owner of this " +
+        "deployment. It is sent only when something is wrong.",
+    }),
+    subject,
+  };
+}
+
 export const TEMPLATE_IDS = [
   "verify_email",
   "welcome",
@@ -387,6 +446,7 @@ export const TEMPLATE_IDS = [
   "support_received",
   "support_submitted",
   "password_added",
+  "operational_alert",
 ] as const;
 
 export type TemplateId = (typeof TEMPLATE_IDS)[number];

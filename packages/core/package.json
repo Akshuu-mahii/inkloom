@@ -22,7 +22,8 @@
     "./retention": "./src/retention/index.ts",
     "./telemetry": "./src/telemetry/index.ts",
     "./metrics": "./src/telemetry/buckets.ts",
-    "./privacy": "./src/privacy/index.ts"
+    "./privacy": "./src/privacy/index.ts",
+    "./health": "./src/health/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

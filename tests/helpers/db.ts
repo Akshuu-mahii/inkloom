@@ -12,6 +12,13 @@ import { sql } from "drizzle-orm";
 import type pg from "pg";
 
 const TABLES = [
+  // Telemetry roll-ups. They were missing, and it was not harmless: nothing
+  // truncated `request_metrics`, so a 5xx recorded by one test file was still
+  // there for the next one. Any test asserting "no server errors" passed or
+  // failed depending on which files had run before it.
+  "request_metrics",
+  "provider_metrics",
+  "daily_metrics",
   "analytics_events",
   "job_runs",
   "rate_limit_events",

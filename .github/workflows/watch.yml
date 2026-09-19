@@ -1,0 +1,91 @@
+name: Watch production
+
+# The other half of a pair, and the halves watch each other.
+#
+# The application's nightly cron checks its own health and emails the owner.
+# It cannot report its own death: a cron that stops firing sends nothing, and
+# silence is exactly what a healthy night looks like. So this runs from
+# somewhere else, on a different scheduler, and one of the things it checks is
+# whether that cron is still running.
+#
+# The favour is returned. Backups run from CI, so only the application can
+# notice they have stopped — which its nightly check does.
+on:
+  schedule:
+    # 06:00 UTC: after the 02:10 backup and the 03:20 sweep, so it sees the
+    # night's real results rather than yesterday's.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: watch-production
+  cancel-in-progress: true
+
+jobs:
+  watch:
+    name: Is production all right
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # Before anything that needs a database or a checkout: if the site is
+      # down, that is the whole answer and the rest is noise.
+      - name: The site is up
+        run: |
+          for attempt in 1 2 3; do
+            body=$(curl -fsS --max-time 20 https://inkloom.art/api/ready) && break
+            echo "Attempt $attempt failed."
+            sleep 10
+          done
+          if ! echo "$body" | grep -q '"status":"ready"'; then
+            echo "::error title=Production is not ready::/api/ready did not report ready: $body"
+            exit 1
+          fi
+          echo "ready: $body"
+
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      # Read-only. Exits 2 on anything critical, 1 on a warning, and prints
+      # every figure it looked at either way.
+      #
+      # `--alert` sends the detailed mail itself, and is used only when the mail
+      # credentials exist as repository secrets. Without them this still works:
+      # the job fails, and GitHub emails whoever owns the repository. That is a
+      # worse alert than the templated one, and it is a real one, which is the
+      # property that matters — so the alerting has no setup step that can be
+      # left half-done.
+      - name: Check production health
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          INKLOOM_ENV: production
+          APP_URL: https://inkloom.art
+          OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_FROM: Inkloom <no-reply@mail.inkloom.art>
+          HEALTH_SOURCE: the scheduled watchdog in CI
+        run: |
+          set -o pipefail
+          flags=""
+          if [ -n "$OWNER_EMAIL" ] && [ -n "$RESEND_API_KEY" ]; then
+            flags="--alert"
+          else
+            echo "::notice::OWNER_EMAIL / RESEND_API_KEY not set — relying on GitHub's own failure notification."
+          fi
+          {
+            echo "### Production health"
+            echo ""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          pnpm health:check $flags 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Say what to do about it
+        if: failure()
+        run: |
+          echo "::error title=Production health check failed::See the job summary for the figures. \
+          Runbook: docs/incident-runbook.md. If the site itself is down, roll back with \
+          'wrangler rollback --env production'."

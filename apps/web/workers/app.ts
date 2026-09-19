@@ -36,6 +36,8 @@ import {
   verifyAccessToken,
 } from "@inkloom/core/security";
 import { recordJobRun, RETENTION_JOB, runRetentionSweep } from "@inkloom/core/retention";
+import { checkHealth } from "@inkloom/core/health";
+import { templates } from "@inkloom/email";
 import {
   captureSelfMeasuredUsage,
   flushIfDue,
@@ -491,6 +493,27 @@ export default {
           extra: { steps: failures.map((s) => ({ step: s.name, error: s.error })) },
         });
       }
+
+      /*
+       * Tell somebody, once a day, and only when something is wrong.
+       *
+       * Everything this application knows about its own health was already
+       * recorded — job runs, 5xx counts, ledger drift, failed mail — and all of
+       * it sat in tables that only report to a console nobody watches at four
+       * in the morning. A failure that is recorded and never delivered is
+       * indistinguishable, from the outside, from one that was never detected.
+       *
+       * This half of the pair watches the things the SCHEDULED SIDE cannot:
+       * backups run from CI, so only the application can notice they have
+       * stopped. The CI side returns the favour by noticing when this cron
+       * stops — nothing can report its own death, so each reports the other's.
+       *
+       * Never throws. An alerting failure must not mark the nightly job failed
+       * and so cause a second, more confusing alert about itself.
+       */
+      await notifyOwnerOfProblems(db, services, logger).catch((error: unknown) => {
+        logger.error("health_alert_failed", { error });
+      });
     } catch (error) {
       logger.error("retention_sweep_failed", { error });
       services.monitoring.captureException(error, { extra: { cron: event.cron } });
@@ -519,6 +542,55 @@ export default {
     }
   },
 } satisfies ExportedHandler<WorkerEnv>;
+
+/**
+ * Email the owner when the nightly health check finds something.
+ *
+ * Silent when healthy, on purpose: a daily "all fine" message trains its
+ * recipient to filter the address, and the one that matters arrives in the
+ * folder nobody opens.
+ */
+async function notifyOwnerOfProblems(
+  db: ReturnType<typeof connect>["db"],
+  services: ReturnType<typeof buildServices>,
+  logger: ReturnType<typeof createLogger>,
+): Promise<void> {
+  const owner = services.config.OWNER_EMAIL;
+  if (!owner) {
+    logger.info("health_alert_skipped", { reason: "no OWNER_EMAIL configured" });
+    return;
+  }
+
+  const report = await checkHealth(db);
+  if (report.problems.length === 0) {
+    logger.info("health_ok", report.context);
+    return;
+  }
+
+  logger.error("health_problems", {
+    count: report.problems.length,
+    codes: report.problems.map((p) => p.code),
+  });
+
+  const rendered = templates.operationalAlert(
+    { appUrl: services.config.APP_URL, supportEmail: services.config.SUPPORT_EMAIL },
+    {
+      environment: String(services.config.INKLOOM_ENV),
+      problems: report.problems,
+      context: report.context,
+      source: "the nightly job on the application itself",
+    },
+  );
+
+  // `force`, because this is operational mail to the operator: it is not
+  // subject to the notification preferences that govern mail to users.
+  await services.mailer.send({
+    to: owner,
+    template: "operational_alert",
+    rendered,
+    force: true,
+  });
+}
 
 function originOf(value: string): string {
   try {
