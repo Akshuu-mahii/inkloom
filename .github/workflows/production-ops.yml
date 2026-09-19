@@ -18,7 +18,7 @@ on:
         description: What to do
         required: true
         type: choice
-        options: [bootstrap-owner, erase-account, report]
+        options: [bootstrap-owner, erase-account, acceptance, report]
         default: report
       email:
         description: The account to act on
@@ -103,6 +103,25 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
         run: pnpm account:erase --email "${{ inputs.email }}" ${{ inputs.apply && '--apply' || '' }}
+
+      # Read-only, against the deployed Worker AND the database. Not the staging
+      # suites pointed at a new URL: those prove a control by exercising it, and
+      # production is not a place to create accounts nobody asked for.
+      - name: Production acceptance
+        if: inputs.task == 'acceptance'
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_URL: https://inkloom.art
+          ADMIN_PATH: ${{ secrets.PRODUCTION_ADMIN_PATH }}
+        run: |
+          set -o pipefail
+          {
+            echo "### Production acceptance"
+            echo ""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          pnpm accept:production 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Report
         env:
