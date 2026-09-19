@@ -227,7 +227,6 @@ export default function Profile() {
   );
 }
 
-
 function Toggle({
   name,
   label,

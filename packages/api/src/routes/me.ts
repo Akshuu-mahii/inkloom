@@ -28,11 +28,7 @@ import { body, query, validateBody, validateQuery } from "../middleware/validate
 import { passesOwnerGate, requireAuth } from "../middleware/auth";
 import { isAdminRole } from "@inkloom/core/rbac";
 import { rateLimit, bySubjectUser } from "../middleware/rate-limit";
-import {
-  notificationPreferencesSchema,
-  paginationSchema,
-  updateMeSchema,
-} from "../schemas/index";
+import { notificationPreferencesSchema, paginationSchema, updateMeSchema } from "../schemas/index";
 
 export const meRoutes = new Hono<Env>();
 
@@ -497,4 +493,3 @@ meRoutes.post(
     return ok(c, { exportId, status: "ready", data: payload });
   },
 );
-

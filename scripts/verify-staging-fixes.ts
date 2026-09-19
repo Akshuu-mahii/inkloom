@@ -146,10 +146,7 @@ async function createVerifiedUser(db: Database, label: string) {
  * The fallback survives for accounts with no usable password (seeded before a
  * failure, say) so a crash mid-run still leaves nothing signable-in behind.
  */
-async function removeUser(
-  db: Database,
-  userId: string,
-): Promise<"erased" | "retired" | "failed"> {
+async function removeUser(db: Database, userId: string): Promise<"erased" | "retired" | "failed"> {
   // Already a tombstone (this run erased it as part of a check): leave it be,
   // or the fallback would overwrite the tombstone address it just set.
   const existing = await db.execute<{ anonymized_at: string | null }>(
