@@ -43,6 +43,20 @@ const TARGET = process.env.STAGING_URL ?? "https://staging.inkloom.art";
 const LOADGEN = required("LOADGEN");
 const PASSWORD = "a-perfectly-fine-passphrase-1";
 
+/*
+ * Staging sits behind Cloudflare Access, so the controller's own requests need
+ * the service token as much as the generator's do. Without it `seedSession`
+ * meets a login page, reads no Set-Cookie, and every authenticated scenario
+ * quietly measures an anonymous one.
+ */
+const ACCESS_HEADERS: Record<string, string> =
+  process.env.CF_ACCESS_CLIENT_ID && process.env.CF_ACCESS_CLIENT_SECRET
+    ? {
+        "CF-Access-Client-Id": process.env.CF_ACCESS_CLIENT_ID,
+        "CF-Access-Client-Secret": process.env.CF_ACCESS_CLIENT_SECRET,
+      }
+    : {};
+
 /** Concurrency per generator invocation. Kept low so no invocation self-queues. */
 const PER_INVOCATION = 20;
 /** Requests each invocation issues. Bounded by the platform's subrequest cap. */
@@ -64,15 +78,22 @@ async function fanOut(
   scenario: string,
   aggregateConcurrency: number,
   cookies: string[],
+  accounts: string[] = [],
 ): Promise<{ agg: GenResult; invocations: number }> {
   const invocations = Math.max(1, Math.round(aggregateConcurrency / PER_INVOCATION));
   const cookieParam = cookies.length
     ? `&cookies=${cookies.map((c) => encodeURIComponent(c)).join("|")}`
     : "";
+  // Pre-built login bodies. The generator rotates them, so the measurement is
+  // contention on the database rather than repeated work on one row.
+  const accountParam = accounts.length
+    ? `&accounts=${accounts.map((a) => encodeURIComponent(a)).join("|")}`
+    : "";
 
   const url = (i: number) =>
     `${LOADGEN}/?scenario=${scenario}&concurrency=${PER_INVOCATION}` +
-    `&total=${PER_INVOCATION_TOTAL}&target=${encodeURIComponent(TARGET)}${cookieParam}&lane=${i}`;
+    `&total=${PER_INVOCATION_TOTAL}&target=${encodeURIComponent(TARGET)}` +
+    `${cookieParam}${accountParam}&lane=${i}`;
 
   const results = await Promise.all(
     Array.from({ length: invocations }, async (_, i) => {
@@ -197,7 +218,7 @@ async function seedSession(db: Database, label: string) {
 
   const login = await fetch(`${TARGET}/api/v1/auth/login`, {
     method: "POST",
-    headers: { "content-type": "application/json", origin: TARGET },
+    headers: { "content-type": "application/json", origin: TARGET, ...ACCESS_HEADERS },
     body: JSON.stringify({ email, password: PASSWORD }),
   });
   const cookie = (login.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]).join("; ");
@@ -224,6 +245,9 @@ async function main() {
     const cookies = sessions.map((s) => s.cookie).filter(Boolean);
     console.log(`  ..    ${cookies.length}/10 sessions established`);
 
+    // The same accounts, as ready-made login bodies the generator can rotate.
+    const loginBodies = sessions.map((s) => JSON.stringify({ email: s.email, password: PASSWORD }));
+
     const startIntegrity = (
       await db.execute<{ drift: string }>(sql`
         SELECT COUNT(*)::text AS drift FROM credit_wallets w
@@ -234,10 +258,21 @@ async function main() {
     console.log(`  ..    ledger drift before: ${startIntegrity.drift}`);
 
     // =====================================================================
+    /*
+     * `login` is the addition that matters here.
+     *
+     * Everything above it reads. Sign-in is the heaviest thing an ordinary
+     * person does — a deliberately expensive password verification plus a
+     * session write — and it is the honest proxy for signup, which has the same
+     * shape and cannot be driven directly because it sits behind Turnstile, as
+     * it should. Ramped further than the read scenarios because the question is
+     * specifically where the write path gives out.
+     */
     const ramp: Array<[string, number[]]> = [
       ["health", [25, 100, 300, 500]],
       ["browse", [25, 50, 100, 200, 500]],
       ["me", [25, 50, 100, 200]],
+      ["login", [10, 25, 50, 100, 200, 300]],
       ["mixed", [25, 50, 100, 200, 500]],
     ];
 
@@ -245,7 +280,7 @@ async function main() {
       console.log(`\n=== Scenario: ${scenario} ===`);
       for (const level of levels) {
         const before = await serverSnapshot(db);
-        const { agg, invocations } = await fanOut(scenario, level, cookies);
+        const { agg, invocations } = await fanOut(scenario, level, cookies, loginBodies);
 
         console.log(
           `  c=${String(level).padStart(3)} (${invocations}x${PER_INVOCATION})  ` +

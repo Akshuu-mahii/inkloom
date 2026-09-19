@@ -1,0 +1,71 @@
+name: Capacity test (staging)
+
+# STAGING ONLY, and dispatch only.
+#
+# This seeds accounts, drives real traffic at increasing concurrency and erases
+# what it created. That belongs nowhere near production — see the table in
+# docs/DEPLOYMENT.md — and it does not belong on a schedule either: it is a
+# measurement taken when someone wants a number, not a gate.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type "load test staging" to confirm
+        required: true
+        type: string
+
+concurrency:
+  group: capacity-staging
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    name: Measure staging capacity
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: staging
+
+    steps:
+      - name: Confirmation phrase
+        run: |
+          if [ "$CONFIRM" != "load test staging" ]; then
+            echo "::error::Confirmation phrase did not match. Nothing ran."
+            exit 1
+          fi
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      # Refuses if this is not the staging database, for the same reason every
+      # other job that writes does.
+      - name: Confirm the target is the staging database
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm db:verify-target staging
+
+      - name: Run the ramp
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          STAGING_URL: https://staging.inkloom.art
+          LOADGEN: https://inkloom-loadgen.inkloom-web.workers.dev
+          # Staging is behind Access; the controller and the generator both need
+          # the service token or they measure a login page.
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -o pipefail
+          {
+            echo "### Staging capacity"
+            echo ""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          pnpm tsx scripts/capacity-test.ts 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
