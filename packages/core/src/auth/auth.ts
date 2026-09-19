@@ -14,7 +14,6 @@
  *   - notification email after password/email changes
  *   - pseudonymised IP storage on sessions
  */
-import { eq } from "drizzle-orm";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin as adminPlugin, twoFactor } from "better-auth/plugins";
@@ -121,8 +120,6 @@ const authRoles = {
 
 export function createAuth(deps: AuthDeps) {
   const { db, config, logger, mailer } = deps;
-
-  const eqUserId = (id: string) => eq(schema.creditWallet.userId, id);
 
   // Secure cookies everywhere except plain-HTTP local development. The
   // `__Host-` prefix is only legal on a Secure cookie.
@@ -332,27 +329,23 @@ export function createAuth(deps: AuthDeps) {
       /**
        * Fires once the address is confirmed.
        *
-       * The welcome mail and the audit event live here rather than in the API
-       * route because Better Auth's email verification uses a stateless signed
-       * token: `verifyEmail` returns no user, so the route has nobody to send
-       * to. This hook does, and it also covers verification completed by
-       * clicking the link directly (which never touches our route at all).
+       * The audit event lives here rather than in the API route because Better
+       * Auth's email verification uses a stateless signed token: `verifyEmail`
+       * returns no user, so the route has nobody to attribute it to. This hook
+       * does, and it also covers verification completed by clicking the link
+       * directly, which never touches our route at all.
+       *
+       * NO WELCOME MAIL. It used to send one here, and it said what the
+       * dashboard says on the very next screen — the person clicks the link,
+       * lands on /app, and reads "Email confirmed. You are all set." The email
+       * arrived to tell them something they had just been told.
+       *
+       * That duplication is not free. Every signup already spends one message
+       * on verification, which cannot be avoided, and the provider's daily
+       * quota is therefore the signup ceiling. A second message per signup cut
+       * that ceiling in half to buy a greeting.
        */
       afterEmailVerification: async (user) => {
-        const wallet = await db.query.creditWallet.findFirst({
-          where: eqUserId(user.id),
-        });
-
-        await mailer.send({
-          to: user.email,
-          template: "welcome",
-          userId: user.id,
-          rendered: templates.welcome(emailContext, {
-            name: user.name,
-            credits: wallet?.balance ?? 0,
-          }),
-        });
-
         await db.insert(schema.securityEvent).values({
           id: newId("sec"),
           type: "email_verified",

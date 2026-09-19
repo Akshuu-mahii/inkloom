@@ -4,7 +4,6 @@
 import { Hono } from "hono";
 import { newId } from "@inkloom/db";
 import { RedemptionError, RedemptionService } from "@inkloom/core/access-codes";
-import { templates } from "@inkloom/email";
 import type { Env } from "../context";
 import { ok, paged } from "../lib/response";
 import { body, query, validateBody, validateQuery } from "../middleware/validate";
@@ -91,7 +90,7 @@ codeRoutes.post(
   async (c) => {
     const principal = c.get("principal")!;
     const input = body<RedeemCodeInput>(c);
-    const { redemption, settings, audit, mailer, config, limiter } = c.get("services");
+    const { redemption, settings, audit, limiter } = c.get("services");
 
     const redemptionEnabled = await settings.isEnabled("code_redemption_enabled");
 
@@ -118,22 +117,20 @@ codeRoutes.post(
       // A successful redeem clears the failure counters.
       await limiter.reset("code.redeem.user", `user:${principal.userId}`);
 
-      if (!result.replayed) {
-        await mailer.send({
-          to: principal.email,
-          template: "code_redeemed",
-          userId: principal.userId,
-          rendered: templates.codeRedeemed(
-            { appUrl: config.APP_URL, supportEmail: config.SUPPORT_EMAIL },
-            {
-              name: principal.name,
-              campaignName: result.campaignName,
-              credits: result.creditsGranted,
-              balance: result.balance,
-            },
-          ),
-        });
-      }
+      /*
+       * NO RECEIPT EMAIL.
+       *
+       * The response below carries the credits granted and the authoritative
+       * balance, and the redeem page prints both before the request has
+       * finished settling: "$25 in credits added — your balance is now $25".
+       * The receipt restated that, by email, seconds later.
+       *
+       * It cost a message per redemption out of a daily quota that is also the
+       * signup ceiling, to confirm something the person was looking at. When
+       * credits can actually be spent — and a receipt is a record of a
+       * transaction rather than an echo of a screen — this is worth
+       * reinstating; `templates.codeRedeemed` is kept for that.
+       */
 
       return ok(c, {
         creditsGranted: result.creditsGranted,

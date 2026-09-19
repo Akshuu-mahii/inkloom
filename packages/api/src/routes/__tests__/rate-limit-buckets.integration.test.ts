@@ -328,6 +328,31 @@ describe("auth.login.ip — successful sign-ins are not charged to the network",
     body: JSON.stringify({ email, password }),
   });
 
+  /*
+   * THE CASE THE BUG ACTUALLY BROKE.
+   *
+   * Not one person signing in repeatedly — many different people behind one
+   * public address, which is what carrier-grade NAT, an office and a campus all
+   * look like from here. Every password correct, every sign-in legitimate. The
+   * hundredth of them used to be refused, and so was everyone after.
+   *
+   * The limit is narrowed to 3 so the test proves the property rather than the
+   * arithmetic: with successes charged, the fourth person would be locked out.
+   */
+  it("lets many different people sign in from one shared address", async () => {
+    const people = ["a", "b", "c", "d", "e", "f"].map((n) => `nat-${n}@example.test`);
+    for (const email of people) await signupAndVerify(email);
+
+    await overrideLimit("auth.login.ip", 3);
+
+    for (const email of people) {
+      const result = await app.json("/v1/auth/login", LOGIN(email, USER.password));
+      expect(result.status, `${email} must be able to sign in`).toBe(200);
+    }
+
+    expect(await counted("auth.login.ip"), "no honest sign-in may be charged").toBe(0);
+  });
+
   it("charges nothing for a correct password", async () => {
     await signupAndVerify("nat-ok@example.test");
 
@@ -337,6 +362,28 @@ describe("auth.login.ip — successful sign-ins are not charged to the network",
     }
 
     expect(await counted("auth.login.ip")).toBe(0);
+  });
+
+  /*
+   * And the other half: the same shared address, wrong passwords. This is the
+   * attack the bucket exists for, and it must still be stopped — a fix that
+   * only removes the limit is not a fix.
+   */
+  it("still stops repeated wrong passwords from one shared address", async () => {
+    const people = ["x", "y", "z", "w"].map((n) => `nat-bad-${n}@example.test`);
+    for (const email of people) await signupAndVerify(email);
+
+    await overrideLimit("auth.login.ip", 3);
+
+    for (const email of people.slice(0, 3)) {
+      const result = await app.json("/v1/auth/login", LOGIN(email, "wrong"));
+      expect(result.status).toBe(401);
+    }
+
+    // Budget spent on failures: the address is now refused outright, before
+    // the password is even considered.
+    const blocked = await app.json("/v1/auth/login", LOGIN(people[3]!, "wrong"));
+    expect(blocked.status).toBe(429);
   });
 
   it("still charges a wrong password", async () => {
