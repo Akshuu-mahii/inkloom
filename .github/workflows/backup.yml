@@ -93,6 +93,7 @@ jobs:
           fi
 
       - name: Take, verify and encrypt
+        id: dump
         env:
           DATABASE_URL: >-
             ${{ matrix.environment == 'production'
@@ -104,9 +105,21 @@ jobs:
         run: |
           if [ -z "$DATABASE_URL" ]; then
             echo "::notice::No DATABASE_URL for ${{ matrix.environment }} — skipping"
+            echo "archived=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           pnpm tsx scripts/backup.ts --out backups --label ${{ matrix.environment }}
+
+          # The script also skips, without failing, when the database has no
+          # schema yet — an environment whose migrations have not run has
+          # nothing to archive. Report whether a file actually exists rather
+          # than assuming the step's exit code implies one.
+          if ls backups/*.sql.gz.enc >/dev/null 2>&1; then
+            echo "archived=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "archived=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Nothing to archive for ${{ matrix.environment }}."
+          fi
 
       # Retention lives here, declaratively. GitHub deletes the artifact when it
       # expires, so nothing has to remember to prune and a pruning bug cannot
@@ -115,7 +128,14 @@ jobs:
       # Only `.enc` is uploaded. The glob is the last line of defence: if
       # encryption were ever skipped, this step finds no files and fails rather
       # than publishing a readable copy of the database.
+      #
+      # `if` on the guard, not on `if-no-files-found`. Keeping the glob strict
+      # is the point — but an environment that legitimately produced nothing was
+      # still reaching it, so a backup job reported FAILED for a database that
+      # had simply never been migrated. A red backup that means "nothing to do"
+      # is worse than no alert, because the next real failure looks the same.
       - name: Store it off-site
+        if: steps.dump.outputs.archived == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: backup-${{ matrix.environment }}-${{ github.run_id }}
