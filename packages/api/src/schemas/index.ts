@@ -153,9 +153,22 @@ export const verifyEmailSchema = z.object({ token: z.string().min(10).max(500) }
  * Deliberately loose on shape (6 digits vs a longer backup string) so the same
  * schema serves both endpoints; the library does the real validation, and being
  * stricter here would only tell an attacker which format they got wrong.
+ *
+ * ALL whitespace is removed, not just the ends. Google Authenticator, 1Password
+ * and Authy all display a TOTP code as two groups — `210 661` — so copying it
+ * brings a space along, and `.trim()` leaves an inner space exactly where it
+ * breaks the comparison. The code is then rejected as wrong while being read
+ * out correctly, which is unfalsifiable from the user's side: the digits on
+ * screen match the digits in the box. It blocked both enrolment and sign-in.
+ *
+ * Safe for backup codes too — `3NzQH-QaF1Y` has no spaces to lose.
  */
 export const twoFactorSchema = z.object({
-  code: z.string().trim().min(4).max(64),
+  code: z
+    .string()
+    .max(80)
+    .transform((value) => value.replace(/\s+/g, ""))
+    .pipe(z.string().min(4, "Enter the code from your app.").max(64)),
   trustDevice: z.boolean().optional(),
 });
 

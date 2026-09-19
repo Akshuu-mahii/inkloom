@@ -1,4 +1,5 @@
 import qrcode from "qrcode-generator";
+import { useEffect, useState } from "react";
 import { Form, useActionData, useNavigation, useOutletContext } from "react-router";
 import type { Route } from "./+types/security";
 import { call, fieldErrors, withCookies, type Me } from "../../lib/api";
@@ -194,8 +195,33 @@ export default function Security() {
   const forIntent = (intent: string) =>
     actionData && "intent" in actionData && actionData.intent === intent ? actionData : null;
 
+  /*
+   * The enrolment has to OUTLIVE a wrong code, and it did not.
+   *
+   * `useActionData` only ever holds the LAST action's result. Submitting the
+   * confirm form replaced the `2fa-start` result that carried the QR and the
+   * backup codes, so a single mistyped digit erased the whole panel and sent
+   * the page back to "Set up two-factor" — and starting again issues a NEW
+   * secret, which invalidates the authenticator entry that was just scanned.
+   * Each attempt therefore broke the one before it, which is exactly as
+   * impossible to get through as it sounds.
+   *
+   * Holding it here costs one retry instead of a restart. It is cleared when
+   * two-factor is actually on, so the panel disappears on success.
+   */
+  const started = forIntent("2fa-start")?.setup ?? null;
+  const [heldSetup, setHeldSetup] = useState<typeof started>(null);
+
+  useEffect(() => {
+    if (started) setHeldSetup(started);
+  }, [started]);
+
+  useEffect(() => {
+    if (me.twoFactorEnabled) setHeldSetup(null);
+  }, [me.twoFactorEnabled]);
+
   /** Present only between starting setup and confirming it. */
-  const setup = forIntent("2fa-start")?.setup ?? null;
+  const setup = me.twoFactorEnabled ? null : (started ?? heldSetup);
 
   return (
     <>
