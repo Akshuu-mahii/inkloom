@@ -181,11 +181,19 @@ async function database() {
     );
     console.log(`  INFO  users ${row.users}, campaigns ${row.campaigns}`);
 
-    // A production database with no live campaign cannot grant a single credit,
-    // and the symptom is a redemption form that rejects every code as invalid.
+    /*
+     * A production database with no live campaign cannot grant a single credit,
+     * and the symptom is a redemption form that rejects every code as invalid.
+     *
+     * The status is 'enabled', not 'active'. Postgres rejects an unknown enum
+     * label outright rather than matching nothing, so getting this wrong is an
+     * error and not a silently empty result — which is the only reason it was
+     * caught rather than reported as "no live campaign" on a database that had
+     * one.
+     */
     const campaigns = await db.execute<Record<string, string>>(sql`
       SELECT COUNT(*)::text AS live FROM access_code_campaigns
-       WHERE status = 'active'
+       WHERE status = 'enabled'
          AND (starts_at IS NULL OR starts_at <= now())
          AND (expires_at IS NULL OR expires_at > now())
     `);
@@ -215,14 +223,21 @@ async function database() {
     `);
     check("no code was redeemed twice by one account", duplicates.rows[0].n === "0");
 
-    // A super_admin must exist or nobody can administer anything; more than one
-    // at launch means a promotion happened that nobody planned.
+    /*
+     * At least one super_admin must exist or nobody can administer anything.
+     *
+     * Asserted as "at least", and the count printed. "Exactly one" is right at
+     * launch and wrong the moment a second person is hired, and a check that
+     * fails on a legitimate change gets ignored rather than fixed — but the
+     * number moving without anyone expecting it is worth seeing, so it is
+     * reported rather than merely satisfied.
+     */
     const admins = await db.execute<Record<string, string>>(sql`
       SELECT COUNT(*)::text AS n
         FROM user_roles ur JOIN roles r ON r.id = ur.role_id
        WHERE r.name = 'super_admin'
     `);
-    check("exactly one super_admin", admins.rows[0].n === "1", `${admins.rows[0].n} found`);
+    check("at least one super_admin", Number(admins.rows[0].n) >= 1, `${admins.rows[0].n} found`);
 
     // The limiter writing nothing looks identical to a limiter that is never
     // reached. This cannot tell them apart on a quiet launch day, so it reports
@@ -232,9 +247,18 @@ async function database() {
     `);
     console.log(`  INFO  rate_limit_events in the last 24h: ${limiter.rows[0].n}`);
 
+    /*
+     * `request_metrics` is an hourly ROLLUP, not a row per request: there is no
+     * `status` column, only per-bucket counters. Postgres rejected the column
+     * outright, which is the good case — a query shaped for the wrong table
+     * that happens to parse reports zero and reads as health.
+     *
+     * Keyed on `updated_at`, not `created_at`: a bucket opened ninety minutes
+     * ago and written to a minute ago is current traffic.
+     */
     const errors = await db.execute<Record<string, string>>(sql`
-      SELECT COUNT(*)::text AS n FROM request_metrics
-       WHERE created_at > now() - interval '1 hour' AND status >= 500
+      SELECT COALESCE(SUM(status_5xx), 0)::text AS n FROM request_metrics
+       WHERE updated_at > now() - interval '1 hour'
     `);
     check("no 5xx in the last hour", errors.rows[0].n === "0", `${errors.rows[0].n} responses`);
   } finally {
