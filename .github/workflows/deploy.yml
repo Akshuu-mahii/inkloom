@@ -61,6 +61,9 @@ jobs:
       # Migrations run BEFORE the deploy, so the new code never meets an old
       # schema. Every migration must therefore be backward-compatible with the
       # currently-running version — see docs/DEPLOYMENT.md.
+      # ADMIN_PATH here is STAGING's. Production has a different one, under
+      # PRODUCTION_ADMIN_PATH — the two environments deliberately do not share a
+      # console address, so neither can be reached by guessing from the other.
       - name: Required secrets are present
         run: |
           missing=""
@@ -80,10 +83,27 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ADMIN_PATH: ${{ secrets.ADMIN_PATH }}
 
+      # The same gate the production migration uses: resolve the Hyperdrive
+      # binding this environment actually runs on, and refuse unless
+      # DATABASE_URL is that exact database. A deploy that migrates the wrong
+      # one is not a deploy that can be rolled back.
+      - name: Confirm the target is the staging database
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm db:verify-target staging
+
       - name: Apply migrations
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
         run: pnpm db:migrate
+
+      # Drizzle records that a migration ran, not that its effect survived.
+      - name: Verify schema
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: pnpm db:status --verify
 
       # BOTH variables matter at BUILD time, and neither was set here.
       #
@@ -162,31 +182,50 @@ jobs:
       - name: Required secrets are present
         run: |
           missing=""
-          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID ADMIN_PATH; do
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID PRODUCTION_ADMIN_PATH; do
             eval "value=\$$name"
             [ -z "$value" ] && missing="$missing $name"
           done
           if [ -n "$missing" ]; then
             echo "::error::Missing repository secret(s):$missing — add them under"
-            echo "::error::Settings -> Secrets and variables -> Actions. ADMIN_PATH must match"
-            echo "::error::the ADMIN_PATH secret set on the Worker, or the console is unreachable."
+            echo "::error::Settings -> Secrets and variables -> Actions. PRODUCTION_ADMIN_PATH must"
+            echo "::error::match the ADMIN_PATH secret on the production Worker, or the console is"
+            echo "::error::unreachable at every address."
             exit 1
           fi
           echo "All deploy secrets present."
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          ADMIN_PATH: ${{ secrets.ADMIN_PATH }}
+          PRODUCTION_ADMIN_PATH: ${{ secrets.PRODUCTION_ADMIN_PATH }}
 
-      - name: Show pending migrations for review
+      - name: Confirm the target is the production database
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm db:verify-target production
+
+      # Asked of the DATABASE, not of git. The previous version of this step
+      # diffed HEAD~1, which answers "what did this commit add" — a different
+      # question from "what has this database not had applied yet", and the two
+      # disagree after any deploy that skipped a release.
+      #
+      # It also refuses migrations that are not backward-compatible with the
+      # version currently running, because migrations are applied before the new
+      # code ships. Use the separate "Migrate production database" workflow with
+      # allow_destructive when a breaking change is genuinely intended.
+      - name: Migration plan
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
         run: |
-          echo "### Migrations in this deploy" >> "$GITHUB_STEP_SUMMARY"
-          echo '```sql' >> "$GITHUB_STEP_SUMMARY"
-          git diff --name-only HEAD~1 HEAD -- packages/db/migrations | while read -r file; do
-            echo "-- $file"; cat "$file"
-          done >> "$GITHUB_STEP_SUMMARY" || echo "(none)" >> "$GITHUB_STEP_SUMMARY"
+          set -o pipefail
+          {
+            echo "### Migrations in this deploy"
+            echo ""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          pnpm db:status --sql 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Apply migrations
@@ -194,12 +233,17 @@ jobs:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
         run: pnpm db:migrate
 
+      - name: Verify schema
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: pnpm db:status --verify
+
       # See the note on the staging build: both are build-time, and a deploy
       # without them is silently wrong rather than loudly broken.
       - name: Build
         env:
           CLOUDFLARE_ENV: production
-          ADMIN_PATH: ${{ secrets.ADMIN_PATH }}
+          ADMIN_PATH: ${{ secrets.PRODUCTION_ADMIN_PATH }}
         run: pnpm build
 
       - name: Confirm no secrets in the client bundle
