@@ -148,16 +148,24 @@ async function main() {
      *
      * A Worker deployed at noon cannot have fired an 03:20 trigger today, and
      * calling that a failure is how a gate earns a reputation for crying wolf.
-     * The first migration is the earliest durable evidence the environment
-     * exists — it is written before the Worker is deployed, so this errs toward
-     * demanding the proof rather than excusing it.
+     *
+     * NOT `drizzle.__drizzle_migrations.created_at`, which is the obvious
+     * choice and is wrong: Drizzle stores the JOURNAL's `when` value there —
+     * the moment the migration file was authored — so it is byte-identical in
+     * every environment and older than all of them. Production reported its age
+     * as ten days when it was four hours old, and the check duly failed for a
+     * cron that had never had a chance to run.
+     *
+     * `roles` is written by the reference seed, immediately after migrations,
+     * with a real `now()`. It is the earliest row this environment created
+     * rather than inherited, and it predates the Worker being deployed, so this
+     * still errs toward demanding the proof.
      */
-    const firstMigration = await db.execute<{ at: string | null }>(sql`
-      SELECT to_char(to_timestamp(MIN(created_at) / 1000.0) AT TIME ZONE 'UTC',
-                     'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS at
-        FROM drizzle.__drizzle_migrations
+    const seeded = await db.execute<{ at: string | null }>(sql`
+      SELECT to_char(MIN(created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS at
+        FROM roles
     `);
-    const existedSince = firstMigration.rows[0]?.at ? new Date(firstMigration.rows[0].at) : null;
+    const existedSince = seeded.rows[0]?.at ? new Date(seeded.rows[0].at) : null;
     const due = lastOccurrence(cronHour, cronMinute);
     const hadTheChance = !existedSince || due > existedSince;
 
