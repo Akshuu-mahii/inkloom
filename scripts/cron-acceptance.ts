@@ -24,15 +24,44 @@ import {
 } from "@inkloom/core/retention";
 import { silentLogger } from "@inkloom/core/logger";
 import { describeTarget, required } from "./_env";
+import path from "node:path";
 import { wranglerEnv } from "./_wrangler";
 
 let passed = 0;
 let failed = 0;
+let pending = 0;
+
 const check = (label: string, ok: boolean, detail = "") => {
   console.log(`  ${ok ? "PASS" : "FAIL"}  ${label}${detail ? `  ${detail}` : ""}`);
   if (ok) passed += 1;
   else failed += 1;
 };
+
+/**
+ * A third outcome, for a check that is not yet answerable.
+ *
+ * "The cron fired at its configured minute" cannot be true in an environment
+ * deployed after today's occurrence of that minute — not because anything is
+ * wrong, but because the opportunity has not arrived. Reporting that as FAIL
+ * teaches an operator that red sometimes means "wait", and a gate whose red is
+ * sometimes fine is a gate nobody reads.
+ *
+ * It does not count as a pass either. The question stays open, and the run says
+ * so, so the answer gets collected rather than assumed.
+ */
+const notYet = (label: string, detail = "") => {
+  console.log(`  WAIT  ${label}${detail ? `  ${detail}` : ""}`);
+  pending += 1;
+};
+
+/** The most recent UTC time matching `hour:minute`, at or before `now`. */
+export function lastOccurrence(hour: number, minute: number, now = new Date()): Date {
+  const at = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hour, minute, 0, 0),
+  );
+  if (at > now) at.setUTCDate(at.getUTCDate() - 1);
+  return at;
+}
 
 async function main() {
   const url = required("DATABASE_URL");
@@ -102,11 +131,56 @@ async function main() {
       fired.rows.length > 0,
       `${fired.rows.length} capture(s) recorded`,
     );
-    check(
-      "and it ran at the configured minute (03:20 UTC), not by hand",
-      fired.rows.some((r) => r.hh === "03" && Number(r.mm) >= 20 && Number(r.mm) <= 25),
-      fired.rows[0] ? `newest at ${fired.rows[0].hh}:${fired.rows[0].mm} UTC` : "none",
+    /*
+     * The configured minute, read from the cron rather than written out twice.
+     * The label used to say "03:20 UTC" in prose beside a matcher that could
+     * drift away from it without the sentence changing.
+     */
+    const [cronMinute, cronHour] = cron.split(" ").map(Number);
+    const at = `${String(cronHour).padStart(2, "0")}:${String(cronMinute).padStart(2, "0")} UTC`;
+    const ranOnSchedule = fired.rows.some(
+      (r) =>
+        Number(r.hh) === cronHour && Number(r.mm) >= cronMinute && Number(r.mm) <= cronMinute + 5,
     );
+
+    /*
+     * Has the schedule even come round since this environment existed?
+     *
+     * A Worker deployed at noon cannot have fired an 03:20 trigger today, and
+     * calling that a failure is how a gate earns a reputation for crying wolf.
+     * The first migration is the earliest durable evidence the environment
+     * exists — it is written before the Worker is deployed, so this errs toward
+     * demanding the proof rather than excusing it.
+     */
+    const firstMigration = await db.execute<{ at: string | null }>(sql`
+      SELECT to_char(to_timestamp(MIN(created_at) / 1000.0) AT TIME ZONE 'UTC',
+                     'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS at
+        FROM drizzle.__drizzle_migrations
+    `);
+    const existedSince = firstMigration.rows[0]?.at ? new Date(firstMigration.rows[0].at) : null;
+    const due = lastOccurrence(cronHour, cronMinute);
+    const hadTheChance = !existedSince || due > existedSince;
+
+    if (ranOnSchedule) {
+      check(
+        `and it ran at the configured minute (${at}), not by hand`,
+        true,
+        `newest at ${fired.rows[0].hh}:${fired.rows[0].mm} UTC`,
+      );
+    } else if (!hadTheChance) {
+      notYet(
+        `it has not yet had a scheduled run at ${at}`,
+        `environment exists since ${existedSince?.toISOString().slice(0, 16)}Z; next due ${at}`,
+      );
+    } else {
+      check(
+        `and it ran at the configured minute (${at}), not by hand`,
+        false,
+        fired.rows[0]
+          ? `newest at ${fired.rows[0].hh}:${fired.rows[0].mm} UTC — ${at} has come round since deploy`
+          : "no scheduled capture at all",
+      );
+    }
 
     // =====================================================================
     console.log("\n=== 3. A run leaves a durable, queryable record ===");
@@ -228,8 +302,21 @@ async function main() {
     await pool.end();
   }
 
-  console.log(`\n=== RESULT: ${passed} passed, ${failed} failed ===\n`);
+  const waiting = pending > 0 ? `, ${pending} not yet verifiable` : "";
+  console.log(`\n=== RESULT: ${passed} passed, ${failed} failed${waiting} ===`);
+  if (pending > 0) {
+    console.log("    Re-run after the next scheduled execution to close these.\n");
+  } else {
+    console.log("");
+  }
+
+  // Pending does not fail the run. It is an open question, not a defect, and a
+  // gate that goes red for "come back tomorrow" stops being read.
   process.exit(failed === 0 ? 0 : 1);
 }
 
-void main();
+// Only when run as a command. Exported helpers are imported by tests, and a
+// module that runs its whole acceptance suite on import cannot be tested.
+if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]))) {
+  void main();
+}
