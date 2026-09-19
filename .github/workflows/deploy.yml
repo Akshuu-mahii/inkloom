@@ -22,6 +22,10 @@ on:
         type: choice
         options: [staging, production]
         default: staging
+      confirm:
+        description: For production only — type "deploy production"
+        required: false
+        type: string
 
 concurrency:
   # Never let two deploys race a migration against each other.
@@ -157,9 +161,17 @@ jobs:
           pnpm exec playwright test e2e/marketing.spec.ts --project=chromium
 
   # ---------------------------------------------------------------------------
-  # Production requires a human. The `production` GitHub environment is
-  # configured with required reviewers, so this job pauses for approval before
-  # any step runs.
+  # Production requires a human, and the human is the typed phrase below.
+  #
+  # GitHub's required-reviewers rule is the control this SHOULD lean on, and it
+  # is not available: environment protection rules need a paid plan on a private
+  # repository, and an attempt to configure them here is rejected outright. The
+  # `production` environment still exists — it scopes the deployment history and
+  # any environment-level secrets — but it gates nothing, so nothing in this
+  # file should be written as though it does.
+  #
+  # Buying GitHub Team turns this into a real approval step; until then the
+  # phrase is what stands between a stray click on "Run workflow" and a release.
   # ---------------------------------------------------------------------------
   production:
     name: Deploy to production
@@ -171,6 +183,15 @@ jobs:
       url: https://inkloom.art
 
     steps:
+      - name: Confirmation phrase
+        run: |
+          if [ "$CONFIRM" != "deploy production" ]; then
+            echo "::error::Set the confirm input to 'deploy production'. Nothing ran."
+            exit 1
+          fi
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4

@@ -36,17 +36,20 @@ jobs:
     name: Migrate production
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Required reviewers are configured on this GitHub environment, so the job
-    # pauses for approval before its first step — including before it reads the
-    # production connection string.
+    # This names the environment for the deployment history and for any
+    # environment-scoped secret. It does NOT gate anything: GitHub's
+    # required-reviewers rule needs a paid plan on a private repository and is
+    # refused here, so the typed phrase above is the only thing standing in
+    # front of a production migration. Said plainly because a comment claiming
+    # an approval step that does not exist is worse than no comment.
     environment:
       name: production
       url: https://inkloom.art
 
     steps:
-      # A typed phrase, not a checkbox. The dispatch form is three clicks from
-      # anywhere in the repository and "production" is the default-looking
-      # option in the environment dropdown next door.
+      # A typed phrase, not a checkbox, and — see the note on `environment`
+      # below — the only gate there is. The dispatch form is three clicks from
+      # anywhere in the repository.
       - name: Confirmation phrase
         run: |
           if [ "$CONFIRM" != "migrate production" ]; then
