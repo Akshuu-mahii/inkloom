@@ -145,9 +145,14 @@ jobs:
             echo ""
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          pnpm tsx scripts/gate-summary.ts 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
-          pnpm tsx scripts/cron-acceptance.ts production 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          # Both run, then the step fails. Chained with && under `bash -e`, a
+          # failing gate summary aborted before cron acceptance said anything —
+          # so the run reported one problem and hid however many others.
+          rc=0
+          pnpm tsx scripts/gate-summary.ts 2>&1 | tee -a "$GITHUB_STEP_SUMMARY" || rc=1
+          pnpm tsx scripts/cron-acceptance.ts production 2>&1 | tee -a "$GITHUB_STEP_SUMMARY" || rc=1
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
 
       - name: Report
         env:

@@ -264,16 +264,30 @@ jobs:
       # The verdict has to land in the REAL database, because that is where the
       # staleness signal and the admin console read from. `restore-verify` wrote
       # its own row against the scratch Postgres, which vanishes with the runner.
-      - name: Record the verdict against staging
+      # Recorded against BOTH environments, because the verdict is about the
+      # backup system rather than about one database.
+      #
+      # It used to write to staging alone, which was fine while the drill only
+      # ever restored a staging archive. Now that it restores production's, that
+      # would leave production's console reporting `restore_test: never run`
+      # forever — permanently degraded, for a drill that had just passed against
+      # production's own archive. A health signal that cannot reach the
+      # environment it describes is not a health signal.
+      - name: Record the verdict
         if: always()
         env:
-          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          STATUS: ${{ job.status == 'success' && 'ok' || 'failed' }}
         run: |
-          if [ -z "$DATABASE_URL" ]; then exit 0; fi
-          pnpm tsx scripts/record-job.ts \
-            --job restore_test \
-            --status ${{ job.status == 'success' && 'ok' || 'failed' }} \
-            --note "weekly restore test of a stored archive, run ${{ github.run_id }}"
+          for name in STAGING_DATABASE_URL PRODUCTION_DATABASE_URL; do
+            eval "url=\$$name"
+            [ -z "$url" ] && continue
+            DATABASE_URL="$url" pnpm tsx scripts/record-job.ts \
+              --job restore_test \
+              --status "$STATUS" \
+              --note "weekly restore test of a stored archive, run ${{ github.run_id }}"
+          done
 
       - name: Report failure
         if: failure()
