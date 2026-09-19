@@ -159,7 +159,6 @@ export default function Redeem() {
             gap: "0.5rem",
           }}
         >
-          <li>They are promotional and cost nothing.</li>
           <li>They do not expire.</li>
           <li>They become usable when logo generation opens — nothing spends them today.</li>
           <li>Each code can normally be redeemed once per account.</li>

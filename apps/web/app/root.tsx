@@ -47,6 +47,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="theme-color" content="#F1EDE3" />
+        {/*
+          iOS Safari turns anything that looks like an email address, a phone
+          number or a postal address into a tappable link of its own, styled
+          however it likes. The dashboard prints the signed-in address as plain
+          text, and Safari rendered it underlined and clickable — so it read as
+          a control, and tapping it opened Mail. Switching the detectors off is
+          the only way to keep text as text.
+        */}
+        <meta name="format-detection" content="telephone=no,email=no,address=no" />
         <Meta />
         <Links />
       </head>

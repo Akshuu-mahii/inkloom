@@ -155,7 +155,15 @@ export default function HowItWorks() {
            two thirds of the page empty, because a paragraph is capped at the
            measure and nothing else claimed the width. */
         .stages { list-style: none; margin: 0; padding: 0; display: grid; }
-        .stages > li { position: relative; display: grid; grid-template-columns: 2.5rem 1fr; gap: 0.5rem 1.25rem; padding: 2.25rem 0; }
+        .stages > li { position: relative; display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); gap: 0.5rem 1.25rem; padding: 2.25rem 0; }
+        /* EVERY text track belongs in column two.
+           Without this the items flow row-wise through a two-column grid, so
+           the index takes column one, the name column two — and the BODY wraps
+           back into column one, which is 2.5rem wide. On a phone that set the
+           paragraph one word per line down the entire page. It was invisible on
+           a desktop because the 900px rule below places all four tracks
+           explicitly. */
+        .stage-name, .stage-body, .stage-output { grid-column: 2; min-width: 0; }
         .rule-draw { position: absolute; inset-inline: 0; top: 0; height: 1px; background: var(--color-rule); }
         .stages > li:first-child { padding-top: 0; }
         .stages > li:first-child .rule-draw { display: none; }

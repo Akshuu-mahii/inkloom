@@ -214,7 +214,9 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
         <div className="admin-bar-inner">
           <div style={{ display: "flex", alignItems: "center", gap: "0.875rem" }}>
             <Link to={adminPath} style={{ textDecoration: "none" }} aria-label="Inkloom admin">
-              <Logo size={18} monochrome />
+              {/* Paper letters: the admin bar is ink, and the mono wordmark
+                  is ink too — it was invisible against it. */}
+              <Logo size={18} invert />
             </Link>
             <span className="admin-tag">Admin</span>
           </div>

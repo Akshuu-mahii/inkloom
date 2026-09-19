@@ -67,19 +67,22 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
         description="Your early-access account. Generation opens later — your credits are waiting."
       />
 
-      <p
-        style={{
-          marginTop: "-1.25rem",
-          marginBottom: "1.75rem",
-          fontSize: "var(--text-fine)",
-          color: "var(--color-muted)",
-        }}
-      >
-        Signed in as <strong style={{ color: "var(--color-ink)" }}>{me.email}</strong>
-        {" \u00b7 "}
-        {signIn}
-        {" \u00b7 "}
-        <Link to="/app/profile">Manage account</Link>
+      {/*
+        Two groups, not one sentence with separators in it. Strung together with
+        middle dots it wrapped mid-phrase on a phone, leaving a line that began
+        with a lone "·" and read as a bullet in a list that was not there.
+        Grouped, the line breaks between the address and the rest — which is
+        where a reader would break it.
+      */}
+      <p className="identity-line">
+        <span>
+          Signed in as <strong>{me.email}</strong>
+        </span>
+        <span>
+          {signIn}
+          {" \u00b7 "}
+          <Link to="/app/profile">Manage account</Link>
+        </span>
       </p>
 
       {justVerified && (

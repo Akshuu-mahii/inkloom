@@ -219,9 +219,14 @@ function Approach() {
       <style>{`
         .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
         .steps > li {
-          position: relative; display: grid; grid-template-columns: 3rem 1fr;
+          position: relative; display: grid; grid-template-columns: 3rem minmax(0, 1fr);
           gap: 0.5rem 1.25rem; padding: 1.75rem 0;
         }
+        /* Heading AND paragraph both belong in column two. Flowing row-wise
+           through two columns put the paragraph back under the index, in a 3rem
+           track, which set it one word per line for the whole section. The
+           800px rule below never showed it because it places all three tracks. */
+        .steps h3, .steps p { grid-column: 2; min-width: 0; }
         .steps .rule-draw { position: absolute; inset-inline: 0; top: 0; height: 1px; background: var(--color-rule-soft); }
         .steps > li:last-child { border-bottom: 1px solid var(--color-rule-soft); }
         .steps h3 { font-size: var(--text-h4); }

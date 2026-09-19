@@ -556,3 +556,28 @@ svg {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
+
+/*
+   Who you are signed in as, under the dashboard heading.
+
+   Two groups with a wrap between them rather than one sentence separated by
+   middle dots: strung together, it broke mid-phrase on a phone and left a line
+   starting with a lone "·", which reads as a bullet in a list that is not
+   there. An address is also the one string here with no spaces in it, so it
+   gets permission to break inside a word rather than push the page sideways.
+*/
+.identity-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin-top: -1.25rem;
+  margin-bottom: 1.75rem;
+  font-size: var(--text-fine);
+  color: var(--color-muted);
+}
+
+.identity-line strong {
+  color: var(--color-ink);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
