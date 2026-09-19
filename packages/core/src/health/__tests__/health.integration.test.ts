@@ -128,6 +128,70 @@ describe("each fault is caught on its own", () => {
   });
 });
 
+describe("the two ceilings that stop signup without an error", () => {
+  /*
+   * Every signup sends a verification email. When the provider's daily quota
+   * runs out the account is still created, the mail never leaves, and the
+   * person waits on the "check your email" page indefinitely — a failure with
+   * no error attached to it anywhere.
+   */
+  it("warns before the daily email quota runs out", async () => {
+    await sendMail(85);
+    const report = await checkHealth(test.db);
+    expect(report.problems).toContainEqual(
+      expect.objectContaining({ code: "email.quota", severity: "warning" }),
+    );
+  });
+
+  it("calls an exhausted quota critical", async () => {
+    await sendMail(100);
+    const report = await checkHealth(test.db);
+    expect(report.problems).toContainEqual(
+      expect.objectContaining({ code: "email.quota", severity: "critical" }),
+    );
+  });
+
+  it("says nothing at ordinary volume", async () => {
+    await sendMail(10);
+    expect(await codes()).not.toContain("email.quota");
+  });
+
+  // A full campaign tells every new arrival their code is "invalid or
+  // unavailable" — indistinguishable from a typo, which is what they will
+  // assume, and they retry until the rate limiter stops them.
+  it("warns before a campaign fills up", async () => {
+    await campaign({ used: 400, cap: 500 });
+    const report = await checkHealth(test.db);
+    expect(report.problems).toContainEqual(
+      expect.objectContaining({ code: "campaign.capacity", severity: "warning" }),
+    );
+  });
+
+  it("calls a full campaign critical", async () => {
+    await campaign({ used: 500, cap: 500 });
+    const report = await checkHealth(test.db);
+    expect(report.problems).toContainEqual(
+      expect.objectContaining({ code: "campaign.capacity", severity: "critical" }),
+    );
+  });
+
+  it("says nothing about a campaign with room left", async () => {
+    await campaign({ used: 12, cap: 500 });
+    expect(await codes()).not.toContain("campaign.capacity");
+  });
+
+  // Unlimited is a deliberate configuration, not an oversight to warn about.
+  it("says nothing about an uncapped campaign", async () => {
+    await campaign({ used: 9999, cap: null });
+    expect(await codes()).not.toContain("campaign.capacity");
+  });
+
+  it("ignores a campaign that is not enabled", async () => {
+    await campaign({ used: 500, cap: 500, status: "paused" });
+    expect(await codes()).not.toContain("campaign.capacity");
+  });
+});
+
 describe("what it deliberately ignores", () => {
   it("does not flag a 5xx from last week", async () => {
     await test.db.execute(sql`
@@ -157,6 +221,27 @@ describe("severity", () => {
     ).toBe("critical");
   });
 });
+
+/** `n` delivered messages inside the quota window. */
+async function sendMail(n: number) {
+  for (let i = 0; i < n; i++) {
+    await test.db.execute(sql`
+      INSERT INTO email_events (id, to_email, template, subject, status, created_at)
+      VALUES (${`eml_q_${i}`}, 'someone@example.test', 'verify_email', 'Confirm', 'delivered', now())
+    `);
+  }
+}
+
+async function campaign(spec: { used: number; cap: number | null; status?: string }) {
+  await test.db.execute(sql`
+    INSERT INTO access_code_campaigns
+      (id, name, code_fingerprint, code_masked, code_last4, credit_amount,
+       redemption_count, max_total_redemptions, status)
+    VALUES (${`cmp_${Math.random().toString(36).slice(2, 10)}`}, 'Early access — launch',
+            ${`fp_${Math.random().toString(36).slice(2, 10)}`}, 'INKL••••ARLY', 'ARLY', 25,
+            ${spec.used}, ${spec.cap}, ${spec.status ?? "enabled"}::campaign_status)
+  `);
+}
 
 async function seedUser(): Promise<string> {
   return (await createTestUser(test.db)).id;

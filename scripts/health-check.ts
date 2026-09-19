@@ -32,7 +32,9 @@ async function main() {
   try {
     console.log(`\n  Health of ${environment} — ${describeTarget(url)}\n`);
 
-    const report = await checkHealth(db);
+    const report = await checkHealth(db, {
+      emailDailyQuota: Number(optional("EMAIL_DAILY_QUOTA", "100")),
+    });
 
     for (const [key, value] of Object.entries(report.context)) {
       console.log(`  ..    ${key.padEnd(34)} ${value}`);

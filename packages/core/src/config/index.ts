@@ -102,6 +102,13 @@ export const envSchema = z.object({
   TURNSTILE_SECRET_KEY: z.string().default(""),
   TURNSTILE_ENABLED: boolish.default(true),
 
+  /**
+   * The mail provider's daily send limit, watched by the nightly health check.
+   * Every signup needs a verification email, so this is the signup ceiling —
+   * and exhausting it fails silently, with the account created and no message
+   * sent. 0 turns the check off.
+   */
+  EMAIL_DAILY_QUOTA: z.coerce.number().int().min(0).default(100),
   SENTRY_DSN: z.string().optional(),
   SENTRY_ENVIRONMENT: z.string().optional(),
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.1),

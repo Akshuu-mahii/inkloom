@@ -51,7 +51,21 @@ const JOB_SEVERITY: Record<string, Severity> = {
   [RESTORE_TEST_JOB]: "warning",
 };
 
-export async function checkHealth(db: Database): Promise<HealthReport> {
+export interface HealthOptions {
+  /**
+   * The mail provider's daily send limit, or 0 to not watch it.
+   *
+   * Passed in rather than read from the environment: inside a Worker,
+   * `process.env` does not carry the deployment's `vars`, so a value configured
+   * there would have been ignored while appearing to be set.
+   */
+  emailDailyQuota?: number;
+}
+
+export async function checkHealth(
+  db: Database,
+  options: HealthOptions = {},
+): Promise<HealthReport> {
   const problems: HealthProblem[] = [];
   const context: Record<string, string> = {};
 
@@ -145,6 +159,72 @@ export async function checkHealth(db: Database): Promise<HealthReport> {
       code: "email.failed",
       summary: "Email is failing to deliver",
       detail: `${mailFailed} of ${mailTotal} message(s) failed or bounced in the last 24 hours.`,
+    });
+  }
+
+  /*
+   * The provider's daily quota, which nothing else in the system can see.
+   *
+   * Every signup sends a verification email, so the mail quota IS the signup
+   * capacity. Exhaust it and signup does not fail loudly — the account is
+   * created, the email never arrives, and the person sits on the
+   * "check your email" page forever. There is no error anywhere that says so.
+   *
+   * The threshold is a warning well before the ceiling, because the useful
+   * moment to know is while there is still time to upgrade the plan.
+   */
+  const dailyQuota = options.emailDailyQuota ?? 100;
+  const sent = await db.execute<{ n: string }>(sql`
+    SELECT COUNT(*)::text AS n FROM email_events
+     WHERE created_at > now() - interval '24 hours'
+  `);
+  const sentCount = Number(sent.rows[0]?.n ?? 0);
+  context.email_quota = `${sentCount} of ${dailyQuota} in 24h`;
+  if (dailyQuota > 0 && sentCount >= dailyQuota * 0.8) {
+    problems.push({
+      severity: sentCount >= dailyQuota ? "critical" : "warning",
+      code: "email.quota",
+      summary:
+        sentCount >= dailyQuota
+          ? "The daily email quota is exhausted"
+          : "The daily email quota is nearly used up",
+      detail:
+        `${sentCount} of ${dailyQuota} sent in the last 24 hours. Every signup needs a ` +
+        `verification email, so when this runs out new accounts are created and never hear ` +
+        `from us — with no error shown to them and none recorded here.`,
+    });
+  }
+
+  /*
+   * A campaign that has run out looks exactly like a wrong code.
+   *
+   * That is deliberate — telling a stranger which codes exist is an invitation
+   * to enumerate them — but it means the day a campaign fills up, every new
+   * arrival is told their code is "invalid or unavailable", assumes a typo,
+   * retries, and trips the redemption rate limiter on their way out. The only
+   * way that does not become a silent cliff is to know it is coming.
+   */
+  const campaigns = await db.execute<{ name: string; used: string; cap: string }>(sql`
+    SELECT name,
+           redemption_count::text     AS used,
+           max_total_redemptions::text AS cap
+      FROM access_code_campaigns
+     WHERE status = 'enabled' AND max_total_redemptions IS NOT NULL
+       AND redemption_count >= max_total_redemptions * 0.8
+  `);
+  for (const row of campaigns.rows) {
+    const full = Number(row.used) >= Number(row.cap);
+    problems.push({
+      severity: full ? "critical" : "warning",
+      code: "campaign.capacity",
+      summary: full
+        ? `The "${row.name}" campaign is full`
+        : `The "${row.name}" campaign is nearly full`,
+      detail:
+        `${row.used} of ${row.cap} redemptions used. ` +
+        (full
+          ? "Every further attempt is told the code is invalid or unavailable, which reads as a typo."
+          : "Raise the cap or start another campaign before it runs out."),
     });
   }
 

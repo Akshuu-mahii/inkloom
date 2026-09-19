@@ -135,6 +135,7 @@
         "ANALYTICS_ENABLED": "true",
         "LOG_LEVEL": "info",
         "SENTRY_ENVIRONMENT": "staging",
+        "EMAIL_DAILY_QUOTA": "100",
         "INKLOOM_RELEASE": "v1.0.0-staging",
       },
       // A SEPARATE Neon branch from production. Sharing one would put real
@@ -175,6 +176,11 @@
         "ANALYTICS_ENABLED": "true",
         "LOG_LEVEL": "info",
         "SENTRY_ENVIRONMENT": "production",
+        // Resend's free plan. The nightly health check warns at 80% of this and
+        // raises a critical at 100%, because every signup needs a verification
+        // email — so the mail quota IS the signup capacity, and running out is
+        // silent: the account is created and the message never leaves.
+        "EMAIL_DAILY_QUOTA": "100",
         "INKLOOM_RELEASE": "v1.0.0",
       },
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "4fc8b31d98b642539478843fb51e677c" }],

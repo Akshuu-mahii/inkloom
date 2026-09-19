@@ -67,6 +67,9 @@ jobs:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           EMAIL_FROM: Inkloom <no-reply@mail.inkloom.art>
           HEALTH_SOURCE: the scheduled watchdog in CI
+          # Resend's free plan. Raise this when the plan is upgraded, or the
+          # warning arrives at a ceiling that no longer exists.
+          EMAIL_DAILY_QUOTA: "100"
         run: |
           set -o pipefail
           flags=""
