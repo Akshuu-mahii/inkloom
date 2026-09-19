@@ -89,8 +89,16 @@ jobs:
 
       # Catches a migration file edited after it was generated, or a journal
       # entry out of order — both of which the runner would otherwise apply or
-      # silently skip. Touches no database.
+      # silently skip.
+      #
+      # `drizzle-kit check` compares files on disk and never opens a connection,
+      # but drizzle.config.ts refuses to load without DATABASE_URL. It gets an
+      # unusable one rather than the real secret, deliberately: this step runs
+      # BEFORE the gate that proves which database we are pointed at, so it is
+      # the one step that should not be holding production credentials.
       - name: Migration files are self-consistent
+        env:
+          DATABASE_URL: postgresql://unused:unused@127.0.0.1:1/unused
         run: pnpm db:check
 
       # THE GATE. Resolves the Hyperdrive binding the production Worker actually
