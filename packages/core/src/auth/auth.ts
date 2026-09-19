@@ -507,7 +507,22 @@ export function createAuth(deps: AuthDeps) {
        * admin is also covered.
        */
       twoFactor({
-        issuer: "Inkloom",
+        /*
+         * The environment is part of the name, and that is not cosmetic.
+         *
+         * This was the string "Inkloom" everywhere, so an operator with access
+         * to both environments ended up with two entries in their authenticator
+         * called exactly the same thing, showing two different six-digit codes,
+         * with nothing to tell them apart. Reading the wrong one produces a
+         * correct code that is rejected — which is indistinguishable, from the
+         * user's side, from a broken second factor. It cost an evening.
+         *
+         * The label lives only in the QR code, so changing it does not touch
+         * any existing secret: TOTP is computed from the secret and the clock,
+         * never from the issuer. Entries enrolled before this stay valid and
+         * stay ambiguous; re-enrolling names them.
+         */
+        issuer: config.INKLOOM_ENV === "production" ? "Inkloom" : `Inkloom (${config.INKLOOM_ENV})`,
         skipVerificationOnEnable: false,
         /*
          * Stated explicitly rather than inherited.
