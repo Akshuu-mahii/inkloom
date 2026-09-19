@@ -19,100 +19,15 @@
  *
  * Exits non-zero on any disagreement. Nothing here writes to the database.
  */
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import pg from "pg";
-import { repoRoot, required } from "./_env";
+import { required } from "./_env";
+import { hyperdriveIdsByEnv } from "./_wrangler";
 
 interface Origin {
   host: string;
   port: number;
   database: string;
   user: string;
-}
-
-/**
- * Strip comments and trailing commas from JSONC.
- *
- * String-aware on purpose: wrangler.jsonc is full of `"https://..."` values,
- * and a naive `//` strip truncates the config at the first URL — producing a
- * parse error that reads like a corrupt file rather than a bad stripper.
- */
-function parseJsonc(text: string): unknown {
-  let out = "";
-  let inString = false;
-  let inLine = false;
-  let inBlock = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    const next = text[i + 1];
-
-    if (inLine) {
-      if (c === "\n") {
-        inLine = false;
-        out += c;
-      }
-      continue;
-    }
-    if (inBlock) {
-      if (c === "*" && next === "/") {
-        inBlock = false;
-        i++;
-      }
-      continue;
-    }
-    if (inString) {
-      out += c;
-      if (c === "\\") {
-        out += text[++i] ?? "";
-      } else if (c === '"') {
-        inString = false;
-      }
-      continue;
-    }
-    if (c === '"') {
-      inString = true;
-      out += c;
-      continue;
-    }
-    if (c === "/" && next === "/") {
-      inLine = true;
-      i++;
-      continue;
-    }
-    if (c === "/" && next === "*") {
-      inBlock = true;
-      i++;
-      continue;
-    }
-    out += c;
-  }
-
-  return JSON.parse(out.replace(/,(\s*[}\]])/g, "$1"));
-}
-
-interface WranglerConfig {
-  hyperdrive?: Array<{ binding: string; id: string }>;
-  env?: Record<string, { hyperdrive?: Array<{ binding: string; id: string }> }>;
-}
-
-/** Every deployed environment's Hyperdrive id, keyed by environment name. */
-function hyperdriveIdsByEnv(): Map<string, string> {
-  const file = path.join(repoRoot, "apps", "web", "wrangler.jsonc");
-  const config = parseJsonc(readFileSync(file, "utf8")) as WranglerConfig;
-  const ids = new Map<string, string>();
-
-  for (const [name, env] of Object.entries(config.env ?? {})) {
-    const id = env.hyperdrive?.find((h) => h.binding === "HYPERDRIVE")?.id;
-    if (id) ids.set(name, id);
-  }
-
-  if (ids.size === 0) {
-    console.error(`No environment Hyperdrive bindings found in ${file}.`);
-    process.exit(1);
-  }
-  return ids;
 }
 
 async function fetchOrigin(id: string): Promise<Origin> {

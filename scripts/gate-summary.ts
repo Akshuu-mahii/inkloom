@@ -18,6 +18,9 @@ import {
 } from "@inkloom/core/retention";
 import { describeTarget, required } from "./_env";
 
+/** Thrown to roll a probe transaction back; never an error worth reporting. */
+class RollbackProbe extends Error {}
+
 async function main() {
   const url = required("DATABASE_URL");
   const { db, pool } = createDb({ connectionString: url, max: 1 });
@@ -114,15 +117,34 @@ async function main() {
     );
   }
 
-  // Behaviour, not presence: the only trustworthy check on an append-only table.
+  /*
+   * Behaviour, not presence: the only trustworthy check on an append-only table.
+   *
+   * INSIDE A TRANSACTION THAT ALWAYS ROLLS BACK. The probe is an UPDATE, and
+   * the whole point is that it should be refused — but the case worth checking
+   * is precisely the one where the trigger is MISSING, and there the statement
+   * succeeds and rewrites every row of the ledger and the audit log. A check
+   * that damages the thing it is checking, in exactly the situation it exists
+   * to detect, is not a check. This was written for staging, where that was a
+   * shrug; it runs against production now.
+   */
   for (const table of ["audit_events", "credit_ledger"]) {
     let refused = false;
     try {
-      await db.execute(sql.raw(`UPDATE ${table} SET id = id`));
+      await db.transaction(async (tx) => {
+        await tx.execute(sql.raw(`UPDATE ${table} SET id = id`));
+        // Never commit, whatever happened above.
+        throw new RollbackProbe();
+      });
     } catch (error) {
-      refused = /append-only/i.test(String((error as { cause?: unknown })?.cause ?? ""));
+      if (error instanceof RollbackProbe) {
+        refused = false; // The UPDATE went through; only the rollback stopped it.
+      } else {
+        refused = /append-only/i.test(String((error as { cause?: unknown })?.cause ?? error));
+      }
     }
     console.log(`  ${refused ? "PASS" : "FAIL"}  ${table} refuses an UPDATE`);
+    if (!refused) unhealthyJobs += 1;
   }
 
   const failures = gate.filter(([, , ok]) => !ok).length + unhealthyJobs;

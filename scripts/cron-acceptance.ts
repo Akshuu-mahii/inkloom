@@ -1,7 +1,7 @@
 /**
- * Scheduled-job acceptance, against the deployed staging environment.
+ * Scheduled-job acceptance, against a deployed environment.
  *
- *   DATABASE_URL="<staging neon url>" pnpm tsx scripts/cron-acceptance.ts
+ *   DATABASE_URL="<neon url>" pnpm tsx scripts/cron-acceptance.ts [staging|production]
  *
  * Three separate questions, easy to conflate:
  *
@@ -13,7 +13,6 @@
  * promise goes unenforced for months: the code is right, the record works, and
  * nothing ever ran it.
  */
-import { readFileSync } from "node:fs";
 import { sql } from "drizzle-orm";
 import { createDb } from "@inkloom/db/client";
 import {
@@ -25,6 +24,7 @@ import {
 } from "@inkloom/core/retention";
 import { silentLogger } from "@inkloom/core/logger";
 import { describeTarget, required } from "./_env";
+import { wranglerEnv } from "./_wrangler";
 
 let passed = 0;
 let failed = 0;
@@ -36,6 +36,7 @@ const check = (label: string, ok: boolean, detail = "") => {
 
 async function main() {
   const url = required("DATABASE_URL");
+  const targetEnv = process.argv[2] ?? "staging";
   const { db, pool } = createDb({ connectionString: url, max: 1 });
   console.log(`\n  ${describeTarget(url)}\n`);
 
@@ -52,14 +53,26 @@ async function main() {
      * the empirical proof that it actually fires — which is the stronger
      * evidence anyway.
      */
-    const config = readFileSync("apps/web/wrangler.jsonc", "utf8");
-    const stagingBlock = config.slice(config.indexOf('"staging"'), config.indexOf('"production"'));
-    const cron = /"crons":\s*\[\s*"([^"]+)"/.exec(stagingBlock)?.[1] ?? "";
+    /*
+     * Parsed, not sliced out of the text.
+     *
+     * This read the characters between `"staging"` and `"production"` and
+     * regexed a cron out of them. It worked, and it meant the check silently
+     * described staging no matter which environment was being accepted — so
+     * pointing it at production would have reported staging's schedule as
+     * production's proof.
+     */
+    const env = wranglerEnv(targetEnv);
+    const cron = env?.triggers?.crons?.[0] ?? "";
 
-    check("the staging environment declares a cron schedule", cron.length > 0, `cron="${cron}"`);
+    check(
+      `the ${targetEnv} environment declares a cron schedule`,
+      cron.length > 0,
+      `cron="${cron}"`,
+    );
     check(
       "and cron triggers are declared per environment, not inherited",
-      /"triggers"/.test(stagingBlock),
+      Array.isArray(env?.triggers?.crons),
       "Cloudflare does not inherit them from the top-level block",
     );
 

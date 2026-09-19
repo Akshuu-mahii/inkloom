@@ -18,7 +18,7 @@ on:
         description: What to do
         required: true
         type: choice
-        options: [bootstrap-owner, erase-account, acceptance, report]
+        options: [bootstrap-owner, erase-account, acceptance, integrity, report]
         default: report
       email:
         description: The account to act on
@@ -124,6 +124,29 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           pnpm accept:production 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # The staging gate's read-only half, pointed at production: every gate
+      # invariant, scheduled-job health, and — in a transaction that always
+      # rolls back — proof that the append-only triggers still refuse a write.
+      #
+      # The staging gate's OTHER half is not here and cannot be. Those suites
+      # prove a control by exercising it: they sign fixtures up, drive a bucket
+      # until it refuses, narrow a limit and restore it. Running them here would
+      # mean creating accounts nobody asked for in a real database.
+      - name: Gate invariants and job health
+        if: inputs.task == 'integrity'
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          set -o pipefail
+          {
+            echo "### Gate invariants"
+            echo ""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          pnpm tsx scripts/gate-summary.ts 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          pnpm tsx scripts/cron-acceptance.ts production 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Report
