@@ -214,8 +214,37 @@ async function refuseUnlessAllowedIn(
   });
 }
 
+/**
+ * Send www to the bare domain, once, permanently.
+ *
+ * `www.inkloom.art` is a CNAME to the apex and it is PROXIED, so Cloudflare
+ * accepts the connection and then looks for an origin it does not have —
+ * 522, which reads as "the site is down" rather than "that is not the address".
+ * Attaching the hostname to this Worker gives it an origin; redirecting here is
+ * what stops the same pages being served, and indexed, under two names.
+ *
+ * 308 rather than 301: a 301 lets an intermediary rewrite a POST into a GET,
+ * which would silently turn a submitted form into a blank page.
+ */
+export function redirectToCanonicalHost(request: Request, env: WorkerEnv): Response | null {
+  const appUrl = typeof env.APP_URL === "string" ? env.APP_URL : "";
+  if (!appUrl) return null;
+
+  const canonical = new URL(appUrl).hostname;
+  const url = new URL(request.url);
+  if (url.hostname !== `www.${canonical}`) return null;
+
+  url.hostname = canonical;
+  return Response.redirect(url.toString(), 308);
+}
+
 export default {
   async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
+    // Before the Access gate and before the database: a request that is only
+    // going to be redirected should cost neither a JWKS fetch nor a connection.
+    const canonical = redirectToCanonicalHost(request, env);
+    if (canonical) return canonical;
+
     const refusal = await refuseUnlessAllowedIn(request, env, new URL(request.url).pathname);
     if (refusal) return refusal;
 

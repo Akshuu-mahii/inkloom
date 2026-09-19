@@ -180,7 +180,13 @@
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "4fc8b31d98b642539478843fb51e677c" }],
       // Cron triggers are not inherited from the top-level block.
       "triggers": { "crons": ["20 3 * * *"] },
-      "routes": [{ "pattern": "inkloom.art", "custom_domain": true }],
+      // Both hostnames reach the Worker; the Worker 308s www to the apex. Without
+      // the www entry the proxied CNAME has no origin behind it and Cloudflare
+      // answers 522, which looks like an outage rather than a wrong address.
+      "routes": [
+        { "pattern": "inkloom.art", "custom_domain": true },
+        { "pattern": "www.inkloom.art", "custom_domain": true },
+      ],
       // The product is served from its own domain; a second, un-branded address
       // for the same Worker is only ever a way around a control set on the first.
       "workers_dev": false,

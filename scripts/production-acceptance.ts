@@ -72,6 +72,17 @@ async function edge() {
   const home = await get("/");
   check("the home page renders", home.status === 200, `got ${home.status}`);
 
+  // A proxied www CNAME with nothing behind it answers 522, which reads as an
+  // outage to anyone who types the address the way most people still do.
+  const wwwDirect = await fetch(`${BASE.replace("https://", "https://www.")}/`, {
+    redirect: "manual",
+  });
+  check(
+    "www redirects to the bare domain",
+    wwwDirect.status === 308 && wwwDirect.headers.get("location") === `${BASE}/`,
+    `${wwwDirect.status} -> ${wwwDirect.headers.get("location") ?? "nowhere"}`,
+  );
+
   // Running the Worker beside the database is a measured decision, not a
   // preference, and it silently stops applying if the placement config is lost.
   const placement = home.headers.get("cf-placement") ?? "";
@@ -98,7 +109,7 @@ async function edge() {
 
   // The test sitekey renders a widget that always passes. Shipping it to
   // production leaves every form open while looking completely normal.
-  const signup = await get("/signup");
+  const signup = await get("/auth/signup");
   check("the signup page renders", signup.status === 200, `got ${signup.status}`);
   check(
     "Turnstile uses the production sitekey",
