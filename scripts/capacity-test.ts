@@ -43,6 +43,9 @@ const TARGET = process.env.STAGING_URL ?? "https://staging.inkloom.art";
 const LOADGEN = required("LOADGEN");
 const PASSWORD = "a-perfectly-fine-passphrase-1";
 
+/** `--signup-only`: skip the read scenarios already measured and ramp signup. */
+const ONLY_SIGNUP = process.argv.includes("--signup-only");
+
 /*
  * Staging sits behind Cloudflare Access, so the controller's own requests need
  * the service token as much as the generator's do. Without it `seedSession`
@@ -268,25 +271,30 @@ async function main() {
      * it should. Ramped further than the read scenarios because the question is
      * specifically where the write path gives out.
      */
-    const ramp: Array<[string, number[]]> = [
-      ["health", [25, 100, 300, 500]],
-      ["browse", [25, 50, 100, 200, 500]],
-      ["me", [25, 50, 100, 200]],
-      ["login", [10, 25, 50, 100, 200, 300, 500]],
-      /*
-       * Signup, measured with Turnstile verification switched OFF on staging
-       * and restored immediately afterwards — a generator cannot solve a
-       * challenge, and that is the control working rather than a gap in it.
-       *
-       * So this is signup MINUS one outbound request to Cloudflare. The
-       * `turnstile` scenario measures that request on its own, and the two are
-       * reported separately rather than summed into a number that pretends to
-       * be a measurement.
-       */
-      ["signup", [10, 25, 50, 100, 200, 300]],
-      ["turnstile", [25, 100]],
-      ["mixed", [25, 50, 100, 200, 500]],
-    ];
+    const ramp: Array<[string, number[]]> = ONLY_SIGNUP
+      ? [
+          ["signup", [10, 25, 50, 100, 200, 300]],
+          ["turnstile", [25, 100]],
+        ]
+      : [
+          ["health", [25, 100, 300, 500]],
+          ["browse", [25, 50, 100, 200, 500]],
+          ["me", [25, 50, 100, 200]],
+          ["login", [10, 25, 50, 100, 200, 300, 500]],
+          /*
+           * Signup, measured with Turnstile verification switched OFF on staging
+           * and restored immediately afterwards — a generator cannot solve a
+           * challenge, and that is the control working rather than a gap in it.
+           *
+           * So this is signup MINUS one outbound request to Cloudflare. The
+           * `turnstile` scenario measures that request on its own, and the two are
+           * reported separately rather than summed into a number that pretends to
+           * be a measurement.
+           */
+          ["signup", [10, 25, 50, 100, 200, 300]],
+          ["turnstile", [25, 100]],
+          ["mixed", [25, 50, 100, 200, 500]],
+        ];
 
     for (const [scenario, levels] of ramp) {
       console.log(`\n=== Scenario: ${scenario} ===`);
