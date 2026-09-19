@@ -315,15 +315,48 @@ authRoutes.post(
 // ---------------------------------------------------------------------------
 authRoutes.post(
   "/login",
-  // Only the network bucket can be applied as middleware: the per-account
-  // bucket needs the email, which is not known until the body is validated, so
-  // it is consumed inside the handler via `loginCooldown` / `consume`.
-  rateLimit({ bucket: "auth.login.ip", subject: bySubjectIp }),
+  /*
+   * NEITHER login bucket is middleware, and that is the whole point.
+   *
+   * `rateLimit()` consumes on the way in, before the handler knows whether the
+   * attempt succeeded. `auth.login.ip` is declared `countFailuresOnly`, and the
+   * limiter's own note says why that matters: "a consume on the way in would
+   * charge honest successes too and lock out a user who has done nothing
+   * wrong." As middleware it did exactly that.
+   *
+   * The effect was a network budget of 100 SUCCESSFUL sign-ins per fifteen
+   * minutes per IP — on a policy whose comment reads "deliberately generous:
+   * one shared campus NAT must not lock out everyone". Behind carrier-grade NAT
+   * that is a few hundred ordinary users, all of them correct, all refused. A
+   * load test found it: every login past the hundredth came back 429 while the
+   * server recorded 18ms means and no errors, because it was measuring the
+   * limiter rather than the application.
+   *
+   * So the budget is CHECKED here and CHARGED only in the catch below, which is
+   * what the failure branch already claimed to do.
+   */
   validateBody(loginSchema),
   async (c) => {
     const input = body<LoginInput>(c);
     const { auth, db, limiter, turnstile, audit, logger } = c.get("services");
     const ipHash = c.get("ipHash");
+    const ipSubject = bySubjectIp(c);
+
+    // Checked, not charged. See the note on the route above.
+    if (ipSubject && !(await limiter.within("auth.login.ip", ipSubject))) {
+      await defer(
+        c,
+        audit.security({
+          type: "rate_limit_exceeded",
+          severity: "warning",
+          ipHash,
+          requestId: c.get("requestId"),
+          metadata: { bucket: "auth.login.ip", path: "/auth/login" },
+        }),
+        "rate_limit_exceeded",
+      );
+      throw apiError("RATE_LIMITED");
+    }
 
     /*
      * --- Staff accounts get a tighter budget -------------------------------
@@ -465,8 +498,11 @@ authRoutes.post(
       copySetCookies(result, response);
       return response;
     } catch {
-      // Count the failure against BOTH the account and the network.
+      // Count the failure against BOTH the account and the network. The
+      // network half used to be missing here because the middleware had
+      // already charged it — on every request, success or not.
       await limiter.consume("auth.login.account", `email:${input.email}`);
+      if (ipSubject) await limiter.consume("auth.login.ip", ipSubject);
       // And, for staff, against the tighter staff budget as well.
       if (isStaff) await limiter.consume("admin.login.account", `email:${input.email}`);
 

@@ -299,3 +299,84 @@ describe("a duplicate signup cannot out-mail the resend budget", () => {
     ).toBeUndefined();
   });
 });
+
+// ===========================================================================
+
+/**
+ * auth.login.ip — the budget that must not charge people for being right.
+ *
+ * The bucket is declared `countFailuresOnly`, and it was applied as middleware,
+ * which consumes on the way in — before the handler knows whether the password
+ * was correct. So every successful sign-in spent network budget, and a shared
+ * address ran out after a hundred of them in fifteen minutes. The policy's own
+ * comment reads "deliberately generous: one shared campus NAT must not lock out
+ * everyone"; behind carrier-grade NAT it locked out everyone.
+ *
+ * A load test found it, which is the only way it could have been found: every
+ * individual request was correct and fast, and the failure only appears when
+ * enough correct requests share one address.
+ */
+describe("auth.login.ip — successful sign-ins are not charged to the network", () => {
+  /*
+   * A client address, because this bucket is keyed on one. Without the header
+   * `ipHash` is null, the network bucket is skipped entirely, and every
+   * assertion here would pass against an application that never applies it.
+   */
+  const LOGIN = (email: string, password: string, ip = "203.0.113.7") => ({
+    method: "POST",
+    headers: { "cf-connecting-ip": ip },
+    body: JSON.stringify({ email, password }),
+  });
+
+  it("charges nothing for a correct password", async () => {
+    await signupAndVerify("nat-ok@example.test");
+
+    for (let i = 0; i < 5; i++) {
+      const result = await app.json("/v1/auth/login", LOGIN("nat-ok@example.test", USER.password));
+      expect(result.status, "a correct password must sign in").toBe(200);
+    }
+
+    expect(await counted("auth.login.ip")).toBe(0);
+  });
+
+  it("still charges a wrong password", async () => {
+    await signupAndVerify("nat-bad@example.test");
+
+    await app.json("/v1/auth/login", LOGIN("nat-bad@example.test", "not-the-password"));
+
+    expect(await counted("auth.login.ip")).toBe(1);
+  });
+
+  // The control has to still work, or this is not a fix but a removal.
+  it("refuses once the network budget is genuinely spent on failures", async () => {
+    await signupAndVerify("nat-limit@example.test");
+    await overrideLimit("auth.login.ip", 2);
+
+    for (let i = 0; i < 2; i++) {
+      await app.json("/v1/auth/login", LOGIN("nat-limit@example.test", "wrong"));
+    }
+
+    const blocked = await app.json("/v1/auth/login", LOGIN("nat-limit@example.test", "wrong"));
+    expect(blocked.status).toBe(429);
+  });
+
+  /*
+   * The case that matters most: an address that has burned its network budget
+   * on failures must refuse even a CORRECT password, or the limit protects
+   * nothing against someone who eventually guesses right.
+   */
+  it("refuses a correct password once the network budget is spent", async () => {
+    await signupAndVerify("nat-spent@example.test");
+    await overrideLimit("auth.login.ip", 2);
+
+    for (let i = 0; i < 2; i++) {
+      await app.json("/v1/auth/login", LOGIN("nat-spent@example.test", "wrong"));
+    }
+
+    const correct = await app.json(
+      "/v1/auth/login",
+      LOGIN("nat-spent@example.test", USER.password),
+    );
+    expect(correct.status).toBe(429);
+  });
+});
