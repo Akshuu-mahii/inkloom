@@ -23,6 +23,11 @@ on:
         required: false
         type: boolean
         default: false
+      seed_reference_data:
+        description: Load roles, feature flags and system settings (idempotent, never users)
+        required: false
+        type: boolean
+        default: true
 
 # The same group the Deploy workflow uses for its production job, so a migration
 # and a deploy can never overlap. Queued, not cancelled: cancelling a job
@@ -153,6 +158,25 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           pnpm db:status --verify 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # Reference data, not sample data.
+      #
+      # `roles`, `feature_flags` and `system_settings` are rows the application
+      # reads on every request; without them RBAC has no role to grant and the
+      # owner bootstrap has nothing to assign, so a freshly migrated database is
+      # not merely empty, it is inert. Loading them is part of bringing a schema
+      # up rather than putting data in it.
+      #
+      # `--reference-only` is belt and braces: the seed script ALSO refuses its
+      # sample accounts whenever INKLOOM_ENV is production, so neither switch
+      # alone can put a fake user in a real database. Every statement is an
+      # idempotent upsert, so re-running changes nothing.
+      - name: Load reference data
+        if: inputs.seed_reference_data
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          INKLOOM_ENV: production
+        run: pnpm db:seed --reference-only
 
       # The ledger must balance against the wallets before anyone trusts a
       # credit figure. Report-only: --repair is never passed here.
