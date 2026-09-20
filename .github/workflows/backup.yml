@@ -16,7 +16,8 @@ name: Backup
 # SCHEDULES ARE PAUSED, on purpose and temporarily.
 #
 # The account's Actions minutes ran out and the budget that replaced them is
-# three dollars. Production currently holds two accounts and one campaign — the
+# three dollars. (Public repositories get unlimited minutes, so this reason
+# disappears the moment this one is made public — turn the crons back on then.) Production currently holds two accounts and one campaign — the
 # owner's own — so a night without an archive costs about fifteen minutes of
 # re-running migrations, seed and bootstrap, and nothing that cannot be rebuilt.
 # That stops being true the moment a real person signs up.
