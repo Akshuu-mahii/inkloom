@@ -1591,7 +1591,7 @@ adminRoutes.get("/insights", requirePermission("admin.overview.read"), async (c)
   const since = new Date(Date.now() - days * 86_400_000);
   const sinceDay = since.toISOString().slice(0, 10);
 
-  const [daily, hourly, byGroup, todayLive, providers] = await Promise.all([
+  const [daily, hourly, byGroup, todayLive, providers, traffic] = await Promise.all([
     // The roll-up, oldest first so a chart can render it directly.
     db.execute<Record<string, string | null>>(sql`
       SELECT * FROM daily_metrics WHERE day >= ${sinceDay}::date ORDER BY day ASC
@@ -1688,7 +1688,51 @@ adminRoutes.get("/insights", requirePermission("admin.overview.read"), async (c)
         FROM provider_metrics
        ORDER BY provider, metric, day DESC
     `),
+
+    /*
+     * Where people went, where they arrived, and where they came from.
+     *
+     * All four already existed in `analytics_events` and none of them was ever
+     * read: the console could say how many people signed up and not which page
+     * they were on when they decided to.
+     *
+     * DISTINCT on the anonymous id, so a figure is people rather than page
+     * loads — one person refreshing a page twenty times is one visit to it,
+     * which is the number anyone actually wants.
+     *
+     * CONSENT-GATED, and this is the important caveat for whoever reads it.
+     * Nothing here is recorded until a visitor accepts analytics cookies, so
+     * every figure is a floor rather than a count. The page says so; a traffic
+     * number presented without that is simply wrong by an unknown margin.
+     */
+    db.execute<Record<string, string>>(sql`
+      WITH recent AS (
+        SELECT * FROM analytics_events WHERE created_at >= ${since}
+      )
+      SELECT 'page'     AS kind, path          AS label, COUNT(DISTINCT anonymous_id)::text AS people, COUNT(*)::text AS views
+        FROM recent WHERE path IS NOT NULL GROUP BY path
+      UNION ALL
+      SELECT 'landing',          landing_path,          COUNT(DISTINCT anonymous_id)::text, COUNT(*)::text
+        FROM recent WHERE landing_path IS NOT NULL GROUP BY landing_path
+      UNION ALL
+      SELECT 'referrer',         COALESCE(NULLIF(referrer, ''), 'direct'), COUNT(DISTINCT anonymous_id)::text, COUNT(*)::text
+        FROM recent GROUP BY COALESCE(NULLIF(referrer, ''), 'direct')
+      UNION ALL
+      SELECT 'source',           COALESCE(NULLIF(utm_source, ''), 'none'), COUNT(DISTINCT anonymous_id)::text, COUNT(*)::text
+        FROM recent GROUP BY COALESCE(NULLIF(utm_source, ''), 'none')
+      UNION ALL
+      SELECT 'device',           COALESCE(device_category, 'unknown'),     COUNT(DISTINCT anonymous_id)::text, COUNT(*)::text
+        FROM recent GROUP BY COALESCE(device_category, 'unknown')
+      ORDER BY 3 DESC
+    `),
   ]);
+
+  /** Visitors, split by what each row describes. */
+  const trafficOf = (kind: string) =>
+    traffic.rows
+      .filter((r) => r.kind === kind)
+      .map((r) => ({ label: r.label, people: Number(r.people), views: Number(r.views) }))
+      .slice(0, 15);
 
   const live = todayLive.rows[0] ?? {};
   const n = (key: string) => Number(live[key] ?? 0);
@@ -1698,6 +1742,20 @@ adminRoutes.get("/insights", requirePermission("admin.overview.read"), async (c)
     daily: daily.rows,
     hourly: hourly.rows.map((r) => ({ hour: Number(r.hour), requests: Number(r.requests) })),
     routeGroups: byGroup.rows,
+    traffic: {
+      pages: trafficOf("page"),
+      landings: trafficOf("landing"),
+      referrers: trafficOf("referrer"),
+      sources: trafficOf("source"),
+      devices: trafficOf("device"),
+      visitors:
+        new Set(traffic.rows.filter((r) => r.kind === "page")).size > 0
+          ? Math.max(
+              ...traffic.rows.filter((r) => r.kind === "landing").map((r) => Number(r.people)),
+              0,
+            )
+          : 0,
+    },
     today: {
       signups: n("signups"),
       dau: n("dau"),

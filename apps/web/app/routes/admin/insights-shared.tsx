@@ -47,6 +47,13 @@ export interface RouteGroupRow {
   error_codes: Record<string, number>;
 }
 
+export interface TrafficRow {
+  label: string;
+  /** Distinct anonymous visitors, not page loads. */
+  people: number;
+  views: number;
+}
+
 export interface Insights {
   windowDays: number;
   daily: DailyRow[];
@@ -60,6 +67,21 @@ export interface Insights {
     emailsFailed: number;
     requests: number;
     errors: number;
+  };
+  /**
+   * Traffic, from first-party analytics.
+   *
+   * A FLOOR, never a count: nothing is recorded until a visitor accepts
+   * analytics cookies, so everyone who declines is invisible here. Anything
+   * built on these numbers has to say so.
+   */
+  traffic: {
+    pages: TrafficRow[];
+    landings: TrafficRow[];
+    referrers: TrafficRow[];
+    sources: TrafficRow[];
+    devices: TrafficRow[];
+    visitors: number;
   };
   /** Measured at request time, not read from the nightly roll-up. */
   now: {

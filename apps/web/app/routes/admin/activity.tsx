@@ -2,7 +2,7 @@ import type { Route } from "./+types/activity";
 import { call } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
 import { Empty, Notice, PageHeader, Stat } from "../../components/ui";
-import { BarChart, Funnel, type Insights } from "./insights-shared";
+import { BarChart, Funnel, type Insights, type TrafficRow } from "./insights-shared";
 
 export function meta({ location }: Route.MetaArgs) {
   return buildMeta({
@@ -77,6 +77,36 @@ export default function AdminActivity({ loaderData }: Route.ComponentProps) {
           Computed live. Everything below comes from the nightly roll-up and therefore ends
           yesterday.
         </p>
+      </section>
+
+      {/*
+        Traffic, which the console collected and never showed. The data has been
+        in `analytics_events` since the beginning — path, landing path, referrer,
+        source, device — and the overview could say how many people signed up
+        without ever saying which page they were on when they decided to.
+      */}
+      <section className="admin-section">
+        <h2 className="admin-h2">Traffic</h2>
+        <Notice tone="info" title="These are floors, not counts">
+          Nothing is recorded until a visitor accepts analytics cookies, so everyone who declines is
+          invisible here. Treat every figure below as “at least this many”.
+        </Notice>
+
+        <div className="admin-grid" style={{ marginTop: "1.25rem" }}>
+          <TrafficTable title="Pages viewed" rows={insights.traffic.pages} head="Page" />
+          <TrafficTable
+            title="Where people arrive"
+            rows={insights.traffic.landings}
+            head="Landing page"
+          />
+          <TrafficTable
+            title="Where they come from"
+            rows={insights.traffic.referrers}
+            head="Referrer"
+          />
+          <TrafficTable title="Campaign source" rows={insights.traffic.sources} head="utm_source" />
+          <TrafficTable title="Devices" rows={insights.traffic.devices} head="Device" />
+        </div>
       </section>
 
       <section className="admin-section">
@@ -164,5 +194,50 @@ export default function AdminActivity({ loaderData }: Route.ComponentProps) {
         .chart-pair { display: grid; gap: 2rem; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
       `}</style>
     </>
+  );
+}
+
+/**
+ * One traffic dimension.
+ *
+ * People before views, because they answer different questions and the first
+ * is nearly always the one being asked. A page with four hundred views from
+ * three people is not a popular page.
+ */
+function TrafficTable({ title, rows, head }: { title: string; rows: TrafficRow[]; head: string }) {
+  return (
+    <div>
+      <h3 style={{ fontSize: "var(--text-fine)", color: "var(--color-muted)" }}>{title}</h3>
+      {rows.length === 0 ? (
+        <p className="admin-note" style={{ marginTop: "0.5rem" }}>
+          Nothing recorded yet.
+        </p>
+      ) : (
+        <div className="table-scroll">
+          <table className="admin-table" style={{ marginTop: "0.5rem" }}>
+            <thead>
+              <tr>
+                <th>{head}</th>
+                <th style={{ textAlign: "right" }}>People</th>
+                <th style={{ textAlign: "right" }}>Views</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.label}>
+                  <td style={{ wordBreak: "break-all" }}>{row.label}</td>
+                  <td className="numeric" style={{ textAlign: "right" }}>
+                    {row.people.toLocaleString("en-GB")}
+                  </td>
+                  <td className="numeric" style={{ textAlign: "right" }}>
+                    {row.views.toLocaleString("en-GB")}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }

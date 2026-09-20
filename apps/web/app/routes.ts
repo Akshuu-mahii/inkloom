@@ -144,6 +144,8 @@ export default [
   // --- Machine-readable, served from the app so they stay in step with it --
   route("robots.txt", "routes/well-known/robots.ts"),
   route("sitemap.xml", "routes/well-known/sitemap.ts"),
+  // A plain-language description of the site for language models. See the file.
+  route("llms.txt", "routes/well-known/llms.ts"),
 
   // --- 404 ----------------------------------------------------------------
   route("*", "routes/not-found.tsx"),
