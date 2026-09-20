@@ -96,10 +96,20 @@ jobs:
       - name: Scan source
         run: pnpm secrets:check
 
+      # The CLI, not gitleaks-action.
+      #
+      # The action is free on a personal repository and requires a paid licence
+      # key on an organisation-owned one. Moving this repository under an
+      # organisation therefore turned a passing secret scan into a failing one,
+      # with nothing about the code having changed. The scanner itself is the
+      # same tool and is free either way, so it is invoked directly.
+      #
+      # `--redact` so a finding is reported without reprinting the secret into
+      # a build log that is more widely readable than the repository.
       - name: Scan git history
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest \
+            detect --source=/repo --no-banner --redact --exit-code 1
 
   # ---------------------------------------------------------------------------
   # Unit tests: pure functions, no database. Fast enough to run everywhere.
