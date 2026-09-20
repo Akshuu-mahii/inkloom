@@ -303,6 +303,26 @@ jobs:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
         run: pnpm credits:reconcile
 
+      # Tell the search engines the pages changed, rather than waiting to be
+      # re-crawled. Free, no account, and the script proves the key file is
+      # actually being served before it submits anything.
+      #
+      # NEVER fails the deploy. The code is live and healthy by this point; a
+      # search engine being slow to hear about it is not a reason to report a
+      # release as broken, and a red deploy for this would be read as one.
+      - name: Tell the search engines
+        if: success()
+        continue-on-error: true
+        env:
+          INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
+          APP_URL: https://inkloom.art
+        run: |
+          if [ -z "$INDEXNOW_KEY" ]; then
+            echo "::notice::INDEXNOW_KEY not set — skipping search engine notification."
+            exit 0
+          fi
+          pnpm seo:ping
+
       - name: Record the deploy
         run: |
           {
