@@ -276,7 +276,17 @@ function SiteHeader({
   );
 }
 
-const FOOTER_GROUPS = [
+/**
+ * A footer link is either a route or somewhere else entirely.
+ *
+ * The distinction matters at render time: a route goes through `Link` so the
+ * navigation stays client-side, while an external profile has to be a real
+ * anchor. Modelling it as a union rather than a `to`/`href` pair of optionals
+ * means the renderer cannot accidentally emit a `Link` pointing at linkedin.com.
+ */
+type FooterLink = { to: string; label: string } | { href: string; label: string };
+
+const FOOTER_GROUPS: Array<{ heading: string; links: FooterLink[] }> = [
   {
     heading: "Product",
     links: [
@@ -301,6 +311,29 @@ const FOOTER_GROUPS = [
       { to: "/privacy", label: "Privacy" },
       { to: "/cookies", label: "Cookies" },
       { to: "/acceptable-use", label: "Acceptable use" },
+    ],
+  },
+  /*
+   * The same four profiles listed in the organisation's `sameAs`, and listed
+   * here for the same reason.
+   *
+   * "Inkloom" is a contested name — a textile brand, a design studio and an
+   * Etsy shop all answer to it. A search engine separates them by counting
+   * presences that link to each other in BOTH directions; `sameAs` is only this
+   * site's half of that claim, and until the site itself links out, a person
+   * checking whether this is a real company finds nothing to click.
+   *
+   * Written as words rather than glyphs on purpose. Nothing else in this
+   * interface is an icon, and the anchor text is itself the signal: "LinkedIn"
+   * pointing at the LinkedIn page says what an unlabelled `in` square does not.
+   */
+  {
+    heading: "Elsewhere",
+    links: [
+      { href: "https://www.linkedin.com/company/inkloom-art/", label: "LinkedIn" },
+      { href: "https://x.com/Inkloom_art", label: "X" },
+      { href: "https://www.instagram.com/inkloom_art/", label: "Instagram" },
+      { href: "https://github.com/Inkloom-art", label: "GitHub" },
     ],
   },
 ];
@@ -349,17 +382,41 @@ function SiteFooter() {
                 style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "0.5rem" }}
               >
                 {group.links.map((link) => (
-                  <li key={link.to}>
-                    <Link
-                      to={link.to}
-                      style={{
-                        fontSize: "var(--text-fine)",
-                        color: "var(--color-muted)",
-                        textDecoration: "none",
-                      }}
-                    >
-                      {link.label}
-                    </Link>
+                  <li key={link.label}>
+                    {"href" in link ? (
+                      <a
+                        href={link.href}
+                        /*
+                         * `me` is the half that does the work: it is the
+                         * microformats convention for "this is the same entity
+                         * as the thing at the other end", which is exactly the
+                         * claim being made. `noopener` is the ordinary safety
+                         * rule for a new tab. Deliberately NOT `noreferrer` —
+                         * stripping the referrer would hide from those profiles
+                         * that the visit came from here.
+                         */
+                        rel="me noopener"
+                        target="_blank"
+                        style={{
+                          fontSize: "var(--text-fine)",
+                          color: "var(--color-muted)",
+                          textDecoration: "none",
+                        }}
+                      >
+                        {link.label}
+                      </a>
+                    ) : (
+                      <Link
+                        to={link.to}
+                        style={{
+                          fontSize: "var(--text-fine)",
+                          color: "var(--color-muted)",
+                          textDecoration: "none",
+                        }}
+                      >
+                        {link.label}
+                      </Link>
+                    )}
                   </li>
                 ))}
               </ul>
