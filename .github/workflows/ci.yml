@@ -248,18 +248,17 @@ jobs:
     timeout-minutes: 25
     needs: [static]
     #
-    # OFF BY DEFAULT, on cost grounds, and this is a measured decision.
+    # OFF BY DEFAULT, and no longer for cost reasons.
     #
-    # Four sharded runners were 60% of the billing for every CI run — more than
-    # the six gates that actually block a merge, put together — to produce a
-    # result that cannot pass on a Linux runner (see the note below) and gates
-    # nothing when it does. The account ran out of Actions minutes in a single
-    # day of ordinary work, which stopped the nightly BACKUP: a suite that
-    # cannot go green was crowding out the job that protects the data.
+    # Four sharded runners were once 60% of the billing for every CI run, which
+    # mattered when minutes were scarce. Public repositories get unlimited
+    # minutes, so that argument is gone.
     #
-    # It is one checkbox away rather than deleted, because the suite is not the
-    # problem — it passes in full on a developer's machine — and the day the
-    # loopback issue is solved this should go back to running on every push.
+    # What remains is the reason below: the suite CANNOT pass on a Linux runner,
+    # for an environment reason unrelated to the application. A permanently red
+    # job on every push teaches everyone to ignore red, which costs more than
+    # the coverage is worth. It stays one checkbox away, and goes back to every
+    # push the day the loopback issue is solved.
     if: github.event_name == 'workflow_dispatch' && inputs.run_e2e
     #
     # ADVISORY, NOT BLOCKING — and this is a known gap rather than a shrug.

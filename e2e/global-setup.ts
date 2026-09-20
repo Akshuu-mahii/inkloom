@@ -143,7 +143,7 @@ export default async function globalSetup() {
     );
     if (campaign.rowCount === 0) {
       throw new Error(
-        "The INKLOOMHACKATHON campaign is missing. Run `pnpm db:seed` before the e2e suite.",
+        "The INKLOOMEARLYACCESS campaign is missing. Run `pnpm db:seed` before the e2e suite.",
       );
     }
     await client.query(

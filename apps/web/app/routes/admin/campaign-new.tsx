@@ -241,7 +241,7 @@ export default function NewCampaign() {
           label="Cohort tag"
           name="targetCohort"
           maxLength={100}
-          hint="For reporting, e.g. hackathon-2026."
+          hint="For reporting, e.g. launch-2026."
         />
 
         <TextArea

@@ -1,12 +1,29 @@
-# Inkloom — V1
+# Inkloom
 
-Inkloom is building specialised AI models for logo design. **V1 is the secure
-production foundation, not the product**: accounts, early access, promotional
-credits and an admin console. Logo generation and payments are deliberately not
-built, and are held behind feature flags that default to off.
+**Specialised AI models for logo design.** Most tools generate an image and call
+it a logo. Inkloom is building models that construct a mark the way a designer
+does — a brand-analysis model turns a description of a business into
+constraints, typography and symbol models work against those constraints, and a
+composition engine produces lockups with real clear-space rules.
 
-Everything in this repository runs. The claims below are backed by tests you can
-execute on your own machine in about five minutes.
+**[inkloom.art](https://inkloom.art)** · early access is open
+
+---
+
+## Status
+
+Accounts, early access, promotional credits and the operations console are
+live in production. **Generation is not built yet**, and nothing in the product
+or on the site claims otherwise — `generation_enabled` and `payments_enabled`
+are feature flags that default to false and are not switchable from the admin
+UI, because enabling a flag whose feature does not exist exposes a broken
+surface rather than a feature.
+
+This repository is the platform those models will ship on: authentication, the
+credit ledger, the access-code system, the admin console, and the operational
+machinery around them — backups that are restore-tested, an alerting pair that
+watches itself, and a deployment path that refuses to migrate a database nobody
+has confirmed the identity of.
 
 ---
 
@@ -18,7 +35,7 @@ cp .env.example .env          # safe local defaults; no real secrets
 docker compose up -d --wait   # PostgreSQL + Mailpit, both on loopback only
 pnpm install
 pnpm db:migrate
-pnpm db:seed                  # roles, flags, sample users, INKLOOMHACKATHON
+pnpm db:seed                  # roles, flags, sample users, INKLOOMEARLYACCESS
 pnpm dev                      # http://localhost:5173
 ```
 
@@ -44,7 +61,7 @@ pnpm bootstrap:superadmin --email you@example.com
 
 ### Try the credit system
 
-Redeem `INKLOOMHACKATHON` at `/app/redeem` for $20 in credits. Try it twice: the
+Redeem `INKLOOMEARLYACCESS` at `/app/redeem` for credits. Try it twice: the
 second attempt is refused rather than doubling your balance, and the refusal is
 enforced by a database constraint, not by a check you could race.
 
@@ -81,7 +98,7 @@ pnpm openapi:emit         # regenerate openapi.json
 
 ---
 
-## What V1 does
+## What the platform does today
 
 A visitor can understand the product, view reference marks, create an account,
 verify their email, sign in, recover a password, redeem an early-access code,
@@ -93,16 +110,15 @@ remove credits with a reason, suspend accounts, revoke sessions, read the audit
 and security trails, watch platform health, control feature flags, and use
 emergency controls during an incident.
 
-### What V1 deliberately does not do
+### What it deliberately does not do
 
 Logo generation, model orchestration, uploads, checkout, subscriptions, credit
 purchase, SVG editing, brand kits, a public API, team workspaces, SSO, or a
-mobile app. The `generation_enabled` and `payments_enabled` flags exist, default
-to false, and are not switchable from the admin UI — enabling a flag whose
-feature does not exist would expose a broken surface, not a feature.
+mobile app.
 
 Every page says so in plain language. Nothing on the marketing site claims
-Inkloom can generate a logo today.
+Inkloom can generate a logo today, and the credits reserved during early access
+are described as reserved rather than spendable.
 
 ---
 
@@ -149,34 +165,54 @@ cookie prefix apply.
 
 ---
 
-## Test results
+## Tests
 
-Run on 10 September 2026, against a real PostgreSQL, a real browser and a real
-mail server. Reproduce with the commands above.
+```
+pnpm test            # 498 tests — unit, integration, concurrency, security
+pnpm test:e2e        # Playwright, a real browser against a real Worker
+```
 
-| Suite                     | Tests   | Result   |
-| ------------------------- | ------- | -------- |
-| Unit                      | 82      | pass     |
-| Integration + concurrency | 45      | pass     |
-| Security                  | 55      | pass     |
-| End-to-end (Playwright)   | 102     | pass     |
-| **Total**                 | **284** | **pass** |
+| Suite                     | Tests   |
+| ------------------------- | ------- |
+| Unit                      | 336     |
+| Integration + concurrency | 162     |
+| Security                  | 68      |
+| **Total**                 | **498** |
 
-The end-to-end figure counts **both** Playwright projects — 80 in `chromium` plus
-22 in `mobile`, which re-runs the accessibility and phone-layout journeys on a
-Pixel 7. An earlier revision of this table said 65, having counted `chromium`
-alone; the mobile project was running but going untallied.
+Run against a real PostgreSQL, a real browser and a real mail server — never a
+mock of any of them, because the guarantees that matter here are transaction
+guarantees and a mock cannot have them.
 
-Also clean: `tsc` across every package, ESLint, Prettier, and the secret scan
-against a real production client bundle.
+The most important single test is `redemption.concurrency.test.ts`, which fires
+twenty-five simultaneous redemptions of one code by one user at a real database
+and asserts that exactly one redemption row, one ledger entry and one balance
+exist afterwards. The append-only tests matter for the same reason: they prove
+the credit ledger and the audit log _refuse_ an UPDATE rather than merely
+being written to carefully.
 
-The most important of these is `redemption.concurrency.test.ts`, which fires 25
-simultaneous redemptions of one code by one user against a real database and
-asserts that exactly one redemption row, one ledger entry and 500 credits exist
-afterwards.
+The end-to-end suite runs on demand rather than on every push. It passes in full
+locally and cannot pass on a Linux CI runner, for an environment reason
+unrelated to the application: miniflare places a Worker behind a network policy
+that permits `public` and `private` addresses and not `local`, so the runtime
+refuses the Worker's connection to a loopback database with an error identical
+to a database that is not running.
+
+---
+
+## Security
+
+Found a vulnerability? Please read [SECURITY.md](SECURITY.md) — it explains
+where to send it and what to expect. Do not open a public issue.
+
+The implemented controls, with the file that enforces each one, are listed in
+[docs/SECURITY.md](docs/SECURITY.md). What is _not_ done is in
+[docs/LIMITATIONS.md](docs/LIMITATIONS.md), stated plainly rather than omitted.
 
 ---
 
 ## Licence
 
-Proprietary. All rights reserved.
+Copyright © Inkloom. All rights reserved.
+
+This source is published so the engineering can be read and audited. It is not
+licensed for reuse, redistribution or derivative works. See [LICENCE](LICENCE).

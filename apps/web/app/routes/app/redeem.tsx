@@ -139,7 +139,7 @@ export default function Redeem() {
           autoCapitalize="characters"
           autoComplete="off"
           spellCheck={false}
-          placeholder="INKLOOM-HACKATHON"
+          placeholder="INKLOOM-EARLYACCESS"
           style={{ fontFamily: "var(--font-mono)", letterSpacing: "0.05em" }}
           hint="Codes are not case-sensitive."
         />

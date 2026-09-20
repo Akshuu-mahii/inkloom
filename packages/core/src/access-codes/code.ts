@@ -19,7 +19,7 @@ const CODE_ALPHABET = "ACDEFGHJKMNPQRTVWXYZ2345679";
  * spaces from email clients. All of that must map to one value, or a valid code
  * would be rejected and — worse — the same code could fingerprint two ways.
  *
- *   "  inkloom-hackathon " -> "INKLOOMHACKATHON"
+ *   "  inkloom-earlyaccess " -> "INKLOOMEARLYACCESS"
  *   "ink loom HACK"   -> "INKLOOMHACK"
  */
 export function normalizeCode(input: string): string {
@@ -98,7 +98,7 @@ export function generateCode(groups = 3, groupSize = 4): string {
  * Display form stored alongside the fingerprint so an admin can recognise a
  * campaign without the code being recoverable.
  *
- *   "INKLOOMHACKATHON" -> { masked: "INKL••••••••THON", last4: "THON" }
+ *   "INKLOOMEARLYACCESS" -> { masked: "INKL••••••••THON", last4: "THON" }
  *
  * Short codes reveal less, never more: an 8-character code shows 2 either side.
  */

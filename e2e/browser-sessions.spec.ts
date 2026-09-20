@@ -262,7 +262,7 @@ test.describe("slow networks and impatient people", () => {
 
     await page.goto("/app/redeem");
     await settled(page);
-    await page.getByLabel("Access code").fill("INKLOOMHACKATHON");
+    await page.getByLabel("Access code").fill("INKLOOMEARLYACCESS");
 
     const redeem = page.getByRole("button", { name: /Redeem code/ });
 
@@ -324,7 +324,7 @@ test.describe("slow networks and impatient people", () => {
 
     await page.goto("/app/redeem");
     await settled(page);
-    await page.getByLabel("Access code").fill("INKLOOMHACKATHON");
+    await page.getByLabel("Access code").fill("INKLOOMEARLYACCESS");
     await page.getByRole("button", { name: /Redeem code/ }).click();
     await page.waitForTimeout(2000);
     await page.unroute("**/app/redeem*");

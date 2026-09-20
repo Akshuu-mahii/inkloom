@@ -45,7 +45,7 @@ export const accessCodeCampaign = pgTable(
      * (e.g. `["mitwpu.edu.in"]`). Null means any verified email is eligible.
      */
     allowedEmailDomains: jsonb("allowed_email_domains").$type<string[]>(),
-    /** Free-form cohort tag used for reporting, e.g. "hackathon-2026". */
+    /** Free-form cohort tag used for reporting, e.g. "launch-2026". */
     targetCohort: text("target_cohort"),
 
     createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),

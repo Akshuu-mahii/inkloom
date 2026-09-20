@@ -1,10 +1,10 @@
 /**
  * Create an access-code campaign from the command line.
  *
- *   pnpm codes:create --name "Hackathon 2026" --credits 20 --code INKLOOMHACKATHON
+ *   pnpm codes:create --name "Launch wave" --credits 20 --code INKLOOMEARLYACCESS
  *   pnpm codes:create --name "Launch wave" --credits 10 --max-total 500 --expires 2026-12-31
  *
- * Used for the initial `INKLOOMHACKATHON` campaign and for any campaign an
+ * Used for the initial `INKLOOMEARLYACCESS` campaign and for any campaign an
  * operator would rather create outside the browser. It goes through exactly the
  * same fingerprinting path as the admin API — the plaintext is never stored,
  * only `HMAC-SHA256(normalised, ACCESS_CODE_PEPPER)`.

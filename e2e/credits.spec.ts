@@ -10,7 +10,7 @@ import { settled, signUpAndVerify, uniqueEmail } from "./support";
  * balance moves, and a second attempt is refused rather than doubling it.
  */
 
-const SEEDED_CODE = "INKLOOMHACKATHON";
+const SEEDED_CODE = "INKLOOMEARLYACCESS";
 const SEEDED_CREDITS = 20;
 /** Balances are shown as dollar amounts; see `formatCredits` in components/ui. */
 const SEEDED_DISPLAY = `$${SEEDED_CREDITS}`;
@@ -50,7 +50,7 @@ test.describe("redeeming an access code", () => {
     await settled(page);
 
     // Lower case, hyphens and spaces all normalise to the same code.
-    await page.getByLabel("Access code").fill("  inkloom-hackathon  ");
+    await page.getByLabel("Access code").fill("  inkloom-earlyaccess  ");
     await page.getByRole("button", { name: /Redeem code/ }).click();
 
     await expect(page.getByText(/credits added/i)).toBeVisible({ timeout: 20_000 });

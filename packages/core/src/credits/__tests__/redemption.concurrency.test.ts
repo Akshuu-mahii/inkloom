@@ -95,7 +95,7 @@ async function counts(userId: string) {
 describe("simultaneous redemption of the same campaign by the same user", () => {
   it("grants exactly one redemption and one credit entry out of 25 concurrent attempts", async () => {
     const user = await createTestUser(t.db, { email: "racer@example.test" });
-    await makeCampaign({ code: "INKLOOMHACKATHON", credits: 100 });
+    await makeCampaign({ code: "INKLOOMEARLYACCESS", credits: 100 });
 
     const ATTEMPTS = 25;
 
@@ -106,7 +106,7 @@ describe("simultaneous redemption of the same campaign by the same user", () => 
         redemption.redeem(
           {
             userId: user.id,
-            code: "inkloom-hackathon",
+            code: "inkloom-earlyaccess",
             idempotencyKey: newId("idem"),
           },
           { ...ctx, normalizedEmail: user.normalizedEmail },

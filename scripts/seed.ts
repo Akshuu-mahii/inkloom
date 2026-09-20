@@ -5,7 +5,7 @@
  *
  * Loads the reference data the application expects (roles, feature flags,
  * system settings) plus — ONLY outside production — a small set of obviously
- * fake accounts and the `INKLOOMHACKATHON` campaign.
+ * fake accounts and the `INKLOOMEARLYACCESS` campaign.
  *
  * The reference data is idempotent and safe anywhere. The sample data is
  * refused outright when INKLOOM_ENV is production, so this script can never
@@ -72,8 +72,8 @@ async function seedReferenceData(db: Database) {
 }
 
 /** The launch campaign, created through the same fingerprinting path as the API. */
-async function seedHackathonCampaign(db: Database, pepper: string) {
-  const plaintext = "INKLOOMHACKATHON";
+async function seedLaunchCampaign(db: Database, pepper: string) {
+  const plaintext = "INKLOOMEARLYACCESS";
   const normalized = normalizeCode(plaintext);
   const fingerprint = await fingerprintCode(normalized, pepper);
   const { masked, last4 } = maskCode(normalized);
@@ -85,12 +85,12 @@ async function seedHackathonCampaign(db: Database, pepper: string) {
        expires_at, target_cohort, status)
     VALUES (
       ${newId("cmp")},
-      'Inkloom Hackathon Early Access',
-      'Launch campaign for hackathon attendees. Seeded, not hardcoded in any route.',
+      'Inkloom Early Access',
+      'Seeded launch campaign for local development. Not hardcoded in any route.',
       ${fingerprint}, ${masked}, ${last4},
       20, 2000, 1,
       ${new Date(Date.now() + 365 * 24 * 3600 * 1000)},
-      'hackathon-2026',
+      'launch-2026',
       'enabled'
     )
     ON CONFLICT (code_fingerprint) DO NOTHING
@@ -98,9 +98,9 @@ async function seedHackathonCampaign(db: Database, pepper: string) {
   `);
 
   if (result.rows.length > 0) {
-    console.log(`  campaign           INKLOOMHACKATHON -> ${masked} ($20 in credits)`);
+    console.log(`  campaign           INKLOOMEARLYACCESS -> ${masked} ($20 in credits)`);
   } else {
-    console.log(`  campaign           INKLOOMHACKATHON already present (${masked})`);
+    console.log(`  campaign           INKLOOMEARLYACCESS already present (${masked})`);
   }
 }
 
@@ -233,7 +233,7 @@ async function main() {
       return;
     }
 
-    await seedHackathonCampaign(db, pepper);
+    await seedLaunchCampaign(db, pepper);
     await seedSampleUsers(db);
 
     console.log("\n  Done.\n");
@@ -242,7 +242,7 @@ async function main() {
     console.log("    2. Read the verification mail at http://localhost:8025 (Mailpit)");
     console.log("    3. pnpm bootstrap:superadmin --email <your address>");
     console.log("    4. Enrol in 2FA at /app/security, then open /admin");
-    console.log("    5. Redeem INKLOOMHACKATHON at /app/redeem for $20 in credits\n");
+    console.log("    5. Redeem INKLOOMEARLYACCESS at /app/redeem for $20 in credits\n");
   } finally {
     await pool.end();
   }

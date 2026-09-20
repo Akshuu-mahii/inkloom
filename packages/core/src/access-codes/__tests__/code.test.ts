@@ -5,15 +5,15 @@ const PEPPER = "test-pepper-at-least-16-chars-long";
 
 describe("normalizeCode", () => {
   it("upper-cases and strips separators so one code has one canonical form", () => {
-    const canonical = "INKLOOMHACKATHON";
+    const canonical = "INKLOOMEARLYACCESS";
     for (const variant of [
-      "INKLOOMHACKATHON",
-      "inkloomhackathon",
-      "Inkloom-Hackathon",
-      "  inkloom hackathon  ",
-      "INKLOOM_HACKATHON",
-      "inkloom.hackathon",
-      "INKLOOM–HACKATHON", // en dash, as pasted from a styled email
+      "INKLOOMEARLYACCESS",
+      "inkloomearlyaccess",
+      "Inkloom-EarlyAccess",
+      "  inkloom earlyaccess  ",
+      "INKLOOM_EARLYACCESS",
+      "inkloom.earlyaccess",
+      "INKLOOM–EARLYACCESS", // en dash, as pasted from a styled email
     ]) {
       expect(normalizeCode(variant)).toBe(canonical);
     }
@@ -43,33 +43,33 @@ describe("isValidCodeShape", () => {
 
   it("accepts codes within bounds", () => {
     expect(isValidCodeShape("ABC123")).toBe(true);
-    expect(isValidCodeShape("INKLOOMHACKATHON")).toBe(true);
+    expect(isValidCodeShape("INKLOOMEARLYACCESS")).toBe(true);
     expect(isValidCodeShape("A".repeat(64))).toBe(true);
   });
 });
 
 describe("fingerprintCode", () => {
   it("is deterministic for the same code and pepper", async () => {
-    const a = await fingerprintCode("INKLOOMHACKATHON", PEPPER);
-    const b = await fingerprintCode("INKLOOMHACKATHON", PEPPER);
+    const a = await fingerprintCode("INKLOOMEARLYACCESS", PEPPER);
+    const b = await fingerprintCode("INKLOOMEARLYACCESS", PEPPER);
     expect(a).toBe(b);
     expect(a).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("never returns the plaintext code", async () => {
-    const fp = await fingerprintCode("INKLOOMHACKATHON", PEPPER);
+    const fp = await fingerprintCode("INKLOOMEARLYACCESS", PEPPER);
     expect(fp.toUpperCase()).not.toContain("INKLOOM");
   });
 
   it("produces a different fingerprint under a different pepper", async () => {
     // This is what makes a stolen database useless without the secret.
-    const withA = await fingerprintCode("INKLOOMHACKATHON", PEPPER);
-    const withB = await fingerprintCode("INKLOOMHACKATHON", "a-completely-different-pepper!!");
+    const withA = await fingerprintCode("INKLOOMEARLYACCESS", PEPPER);
+    const withB = await fingerprintCode("INKLOOMEARLYACCESS", "a-completely-different-pepper!!");
     expect(withA).not.toBe(withB);
   });
 
   it("distinguishes codes that differ by one character", async () => {
-    const a = await fingerprintCode("INKLOOMHACKATHON", PEPPER);
+    const a = await fingerprintCode("INKLOOMEARLYACCESS", PEPPER);
     const b = await fingerprintCode("INKLOOMHACKATHOM", PEPPER);
     expect(a).not.toBe(b);
   });
@@ -107,10 +107,10 @@ describe("generateCode", () => {
 
 describe("maskCode", () => {
   it("reveals only the ends of a long code", () => {
-    const { masked, last4 } = maskCode("INKLOOMHACKATHON");
-    expect(masked).toBe("INKL••••••••THON");
-    expect(last4).toBe("THON");
-    expect(masked).not.toContain("OOMHACKA");
+    const { masked, last4 } = maskCode("INKLOOMEARLYACCESS");
+    expect(masked).toBe("INKL••••••••••CESS");
+    expect(last4).toBe("CESS");
+    expect(masked).not.toContain("OOMEARLY");
   });
 
   it("reveals less for short codes, never more", () => {
@@ -119,7 +119,7 @@ describe("maskCode", () => {
   });
 
   it("never returns the full code", () => {
-    for (const code of ["ABC123", "ABCD1234", "INKLOOMHACKATHON", "A".repeat(40)]) {
+    for (const code of ["ABC123", "ABCD1234", "INKLOOMEARLYACCESS", "A".repeat(40)]) {
       expect(maskCode(code).masked).not.toBe(code);
     }
   });

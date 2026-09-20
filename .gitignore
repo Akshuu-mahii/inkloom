@@ -27,3 +27,6 @@ compose.override.yaml
 backups/
 *.sql.gz
 .gitleaks.json
+
+# AI assistant tooling: local aid, not part of the product.
+apps/web/.agents/
