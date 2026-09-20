@@ -95,12 +95,22 @@ export function organizationJsonLd(origin: string = SITE.url) {
      * shop and a docs tool all answer to it, and every one of them has years of
      * history and a social footprint this domain does not.
      *
-     * A verifiable link to a repository under an organisation of the same name
-     * is a weak signal on its own and the only one currently true. Add the
-     * social profiles here as they exist; an entity with one link is easier to
-     * confuse with another than one with four.
+     * Ordered by the weight each one carries as an entity signal: a LinkedIn
+     * company page is a record search engines already read as an organisation,
+     * X and Instagram are claimed handles, and the repository is the only link
+     * whose contents anyone can inspect.
+     *
+     * This array is a claim, not proof. It counts for something only where the
+     * profile links back to inkloom.art from its own website field — an
+     * unreciprocated `sameAs` is just an assertion the crawler has no reason to
+     * believe, and the entity it is competing with has years of them.
      */
-    sameAs: ["https://github.com/Inkloom-art"],
+    sameAs: [
+      "https://www.linkedin.com/company/inkloom-art/",
+      "https://x.com/Inkloom_art",
+      "https://www.instagram.com/inkloom_art/",
+      "https://github.com/Inkloom-art",
+    ],
   };
 }
 
