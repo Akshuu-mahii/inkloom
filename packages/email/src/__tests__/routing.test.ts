@@ -39,7 +39,7 @@ describe("isUndeliverableTestAddress", () => {
   });
 
   it.each([
-    "mayank@gmail.com",
+    "ada@gmail.com",
     "someone@inkloom.art",
     "person@company.co.uk",
     // Deliberately adversarial: a real domain that merely CONTAINS a reserved
@@ -79,8 +79,8 @@ describe("DevelopmentMailRouter", () => {
 
   it("sends a real address to the real provider", async () => {
     const { real, local, router } = build();
-    await router.send(message("mayank@gmail.com"), "Inkloom <x@y.com>");
-    expect(real.received).toEqual(["mayank@gmail.com"]);
+    await router.send(message("ada@gmail.com"), "Inkloom <x@y.com>");
+    expect(real.received).toEqual(["ada@gmail.com"]);
     expect(local.received).toEqual([]);
   });
 
@@ -124,7 +124,7 @@ describe("DevelopmentMailRouter", () => {
 
   it("passes the provider result straight through", async () => {
     const { router } = build();
-    const result = await router.send(message("mayank@gmail.com"), "Inkloom <x@y.com>");
+    const result = await router.send(message("ada@gmail.com"), "Inkloom <x@y.com>");
     expect(result).toEqual({ ok: true, providerMessageId: "resend_1" });
   });
 });
