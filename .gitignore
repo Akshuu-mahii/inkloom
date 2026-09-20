@@ -30,3 +30,8 @@ backups/
 
 # AI assistant tooling: local aid, not part of the product.
 apps/web/.agents/
+
+# Operational documentation: deployment, incident response and environment
+# detail. Kept out of the published repository — it describes how the service is
+# run, which is not something a reader needs and is something an attacker would.
+docs/

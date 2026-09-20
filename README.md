@@ -69,11 +69,14 @@ This source is published so the engineering can be read and audited — in
 particular the security and data-handling claims we make. It is not a
 distribution: see [LICENCE](LICENCE).
 
-|                                            |                                                           |
-| ------------------------------------------ | --------------------------------------------------------- |
-| [SECURITY.md](SECURITY.md)                 | Reporting a vulnerability, and what to expect             |
-| [docs/SECURITY.md](docs/SECURITY.md)       | The controls that are implemented, and what enforces each |
-| [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | What is deliberately not done                             |
+Found a security issue? [SECURITY.md](SECURITY.md) says where to send it and
+what to expect. Please do not open a public issue.
+
+Operational documentation — deployment, incident response, environment and
+runbooks — is kept internal. Source comments occasionally point at it by
+filename; that is a reference for the people who run the service, not a broken
+link. It describes how the service is operated, which is of no use to a reader
+and of some use to an attacker.
 
 Built on Cloudflare Workers, Postgres and React Router, with the application and
 its API served from one origin — which is what makes the session cookie

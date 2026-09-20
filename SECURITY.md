@@ -52,12 +52,12 @@ pursue action over it.
 We are glad to name you in the advisory and the release notes if you would like
 that, and equally glad not to. Tell us which.
 
-## What is already known
+## Before you start
 
-The controls that are implemented, and the file enforcing each one, are in
-[docs/SECURITY.md](docs/SECURITY.md). What is deliberately **not** done is in
-[docs/LIMITATIONS.md](docs/LIMITATIONS.md) — reading it first may save you time
-on something we already know about.
+Some things are known and deliberate rather than undiscovered — generation and
+payments are not built, and the flags that would enable them default to off. If
+a report depends on a feature that does not exist yet, say so and we will tell
+you where it stands.
 
 There is no paid bounty programme at this stage. We would rather say so plainly
 than imply one.
