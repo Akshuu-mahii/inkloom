@@ -109,7 +109,8 @@ jobs:
       - name: Scan git history
         run: |
           docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest \
-            detect --source=/repo --no-banner --redact --exit-code 1
+            detect --source=/repo --config=/repo/.gitleaks.toml \
+            --no-banner --redact --exit-code 1
 
   # ---------------------------------------------------------------------------
   # Unit tests: pure functions, no database. Fast enough to run everywhere.

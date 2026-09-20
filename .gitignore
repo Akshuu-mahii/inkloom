@@ -26,3 +26,4 @@ compose.override.yaml
 # so they must never be committed. CI keeps them as expiring artifacts instead.
 backups/
 *.sql.gz
+.gitleaks.json

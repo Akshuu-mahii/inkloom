@@ -1,0 +1,43 @@
+# Gitleaks configuration.
+#
+# The scan covers the FULL history, which is the point of having it: a
+# credential committed months ago and deleted the next day is still in every
+# clone, and only a history scan finds it. It must therefore be allowed to run
+# without drowning in the fixtures that every test suite legitimately contains.
+#
+# The allowlist below is narrow on purpose. It names the specific invented
+# values this repository uses, not the directories they live in — an allowlist
+# of "anything under __tests__" would hide a real key pasted into a test, which
+# is exactly as leaked as one pasted anywhere else. `scripts/check-secrets.ts`
+# takes the same line and says so at more length.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Invented values that exist so nobody is tempted to paste a real one"
+
+regexes = [
+  # The house fixture passphrase. Sixteen files use it to sign a test account
+  # in; it has never been a password to anything.
+  '''a-perfectly-fine-passphrase-1''',
+  '''a-different-but-also-long-passphrase''',
+  '''a-sufficiently-long-backup-passphrase''',
+  # Obvious placeholders in configuration tests and .env.example. The config
+  # loader refuses to boot on these outside development, which is what makes
+  # them safe to write down.
+  '''re_live_abc123''',
+  '''ci-only-[a-z0-9-]+''',
+  '''dev-only-[a-z0-9-]+''',
+  '''(?i)placeholder|not-a-real|example\.(test|com|invalid)''',
+  # Cloudflare's own published Turnstile test keys, which always pass and are
+  # documented for exactly this use.
+  '''1x00000000000000000000AA''',
+  '''1x0000000000000000000000000000000AA''',
+]
+
+paths = [
+  # Lockfiles are hashes, not secrets, and they are enormous.
+  '''pnpm-lock\.yaml''',
+  '''package-lock\.json''',
+]
