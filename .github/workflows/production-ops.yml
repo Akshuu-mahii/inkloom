@@ -11,6 +11,16 @@ name: Production operations
 # GitHub to save a few clicks would double the number of places a pepper lives
 # for the rest of the product's life. Campaigns are created from the admin
 # console, which already holds the pepper it needs.
+# Repository secrets this needs:
+#   PRODUCTION_DATABASE_URL
+#   PRODUCTION_ADMIN_PATH
+#   CLOUDFLARE_API_TOKEN
+#   CLOUDFLARE_ACCOUNT_ID
+#
+# Listed because a secret cannot be read back out of GitHub, so moving this
+# repository between owners silently leaves them all behind. A dispatch-only
+# job then fails at its first step for a reason the log states badly.
+
 on:
   workflow_dispatch:
     inputs:

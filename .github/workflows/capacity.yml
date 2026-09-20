@@ -6,6 +6,17 @@ name: Capacity test (staging)
 # what it created. That belongs nowhere near production — see the table in
 # docs/DEPLOYMENT.md — and it does not belong on a schedule either: it is a
 # measurement taken when someone wants a number, not a gate.
+# Repository secrets this needs:
+#   STAGING_DATABASE_URL
+#   CF_ACCESS_CLIENT_ID
+#   CF_ACCESS_CLIENT_SECRET
+#   CLOUDFLARE_API_TOKEN
+#   CLOUDFLARE_ACCOUNT_ID
+#
+# Listed because a secret cannot be read back out of GitHub, so moving this
+# repository between owners silently leaves them all behind. A dispatch-only
+# job then fails at its first step for a reason the log states badly.
+
 on:
   workflow_dispatch:
     inputs:

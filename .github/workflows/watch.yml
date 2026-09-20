@@ -10,6 +10,15 @@ name: Watch production
 #
 # The favour is returned. Backups run from CI, so only the application can
 # notice they have stopped — which its nightly check does.
+# Repository secrets this needs:
+#   PRODUCTION_DATABASE_URL
+#   OWNER_EMAIL (optional)
+#   RESEND_API_KEY (optional)
+#
+# Listed because a secret cannot be read back out of GitHub, so moving this
+# repository between owners silently leaves them all behind. A dispatch-only
+# job then fails at its first step for a reason the log states badly.
+
 on:
   schedule:
     # 06:00 UTC: after the 02:10 backup and the 03:20 sweep, so it sees the

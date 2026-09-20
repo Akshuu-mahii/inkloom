@@ -11,6 +11,15 @@ name: Migrate production database
 #
 # There is no push trigger and there never should be. A migration is the one
 # step of a deploy that a rollback cannot undo.
+# Repository secrets this needs:
+#   PRODUCTION_DATABASE_URL
+#   CLOUDFLARE_API_TOKEN
+#   CLOUDFLARE_ACCOUNT_ID
+#
+# Listed because a secret cannot be read back out of GitHub, so moving this
+# repository between owners silently leaves them all behind. A dispatch-only
+# job then fails at its first step for a reason the log states badly.
+
 on:
   workflow_dispatch:
     inputs:
