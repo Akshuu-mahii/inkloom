@@ -86,7 +86,21 @@ export function organizationJsonLd(origin: string = SITE.url) {
     description: SITE.description,
     email: "support@inkloom.art",
     foundingDate: "2026",
-    sameAs: [] as string[],
+    /*
+     * The other places this same organisation exists.
+     *
+     * `sameAs` is how a search engine decides that two presences are one
+     * entity rather than two. It was an empty array, which says nothing — and
+     * "Inkloom" is a contested name: a textile brand, a design studio, an Etsy
+     * shop and a docs tool all answer to it, and every one of them has years of
+     * history and a social footprint this domain does not.
+     *
+     * A verifiable link to a repository under an organisation of the same name
+     * is a weak signal on its own and the only one currently true. Add the
+     * social profiles here as they exist; an entity with one link is easier to
+     * confuse with another than one with four.
+     */
+    sameAs: ["https://github.com/Inkloom-art"],
   };
 }
 

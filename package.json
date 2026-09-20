@@ -33,6 +33,7 @@
     "account:erase": "tsx scripts/erase-account.ts",
     "credits:reconcile": "tsx scripts/reconcile-credits.ts",
     "codes:create": "tsx scripts/create-campaign.ts",
+    "seo:ping": "tsx scripts/indexnow.ts",
     "openapi:emit": "tsx scripts/emit-openapi.ts",
     "secrets:check": "tsx scripts/check-secrets.ts",
     "accept:production": "tsx scripts/production-acceptance.ts",
