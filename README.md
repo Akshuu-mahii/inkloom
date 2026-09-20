@@ -1,6 +1,9 @@
 <div align="center">
 
-# Inkloom
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="apps/web/public/logo-wordmark-invert.png">
+  <img src="apps/web/public/logo-wordmark.png" alt="Inkloom" width="280">
+</picture>
 
 **Specialised AI models for logo design.**
 
