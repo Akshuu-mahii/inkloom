@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { settled, signUpAndVerify, uniqueEmail } from "./support";
+import { SEEDED_CODE, settled, signUpAndVerify, uniqueEmail } from "./support";
 
 /**
  * Access-code redemption and the credit ledger, through the browser.
@@ -10,7 +10,6 @@ import { settled, signUpAndVerify, uniqueEmail } from "./support";
  * balance moves, and a second attempt is refused rather than doubling it.
  */
 
-const SEEDED_CODE = "INKLOOMEARLYACCESS";
 const SEEDED_CREDITS = 20;
 /** Balances are shown as dollar amounts; see `formatCredits` in components/ui. */
 const SEEDED_DISPLAY = `$${SEEDED_CREDITS}`;

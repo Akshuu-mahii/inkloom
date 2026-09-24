@@ -6,6 +6,23 @@ import { expect, type Page } from "@playwright/test";
 const MAILPIT = process.env.MAILPIT_URL ?? "http://localhost:8025";
 
 /**
+ * The access code `pnpm db:seed` creates, and the one this suite redeems.
+ *
+ * Shared because it is needed in two places that had drifted apart: the specs
+ * that redeem it, and the global setup that has to make sure its campaign is
+ * open before they run. The setup used to look the campaign up by a hardcoded
+ * `code_last4` of 'THON' — left over from an earlier code ending in
+ * "...HACKATHON" — so after the code was renamed the lookup matched nothing and
+ * the suite aborted with "run `pnpm db:seed`", advice that could never work
+ * because the seed creates a campaign ending 'CESS'. Derived from the code
+ * itself now, so renaming it again cannot reintroduce the same drift.
+ */
+export const SEEDED_CODE = "INKLOOMEARLYACCESS";
+
+/** The campaign's stored `code_last4`, the way the API computes it. */
+export const SEEDED_CODE_LAST4 = SEEDED_CODE.replace(/[^A-Z0-9]/g, "").slice(-4);
+
+/**
  * Wait until React has hydrated and the page is genuinely interactive.
  *
  * Not cosmetic. Server-rendered inputs exist in the DOM long before the

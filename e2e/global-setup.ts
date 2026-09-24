@@ -36,6 +36,7 @@ import pg from "pg";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { SEEDED_CODE, SEEDED_CODE_LAST4 } from "./support";
 
 config({ path: ".env", quiet: true });
 
@@ -139,11 +140,13 @@ export default async function globalSetup() {
 
     // The suite redeems this repeatedly; make sure it exists and is open.
     const campaign = await client.query(
-      "SELECT id, status FROM access_code_campaigns WHERE code_last4 = 'THON' LIMIT 1",
+      "SELECT id, status FROM access_code_campaigns WHERE code_last4 = $1 LIMIT 1",
+      [SEEDED_CODE_LAST4],
     );
     if (campaign.rowCount === 0) {
       throw new Error(
-        "The INKLOOMEARLYACCESS campaign is missing. Run `pnpm db:seed` before the e2e suite.",
+        `The ${SEEDED_CODE} campaign is missing (no campaign ends '${SEEDED_CODE_LAST4}'). ` +
+          "Run `pnpm db:seed` before the e2e suite.",
       );
     }
     await client.query(

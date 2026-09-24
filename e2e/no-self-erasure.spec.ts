@@ -26,13 +26,28 @@ test.describe("self-service erasure is gone", () => {
   test("DELETE on the account endpoint is not served", async ({ page }) => {
     await signUpAndVerify(page);
 
-    const response = await page.request.fetch("/api/v1/me", {
+    /*
+     * The Origin header is what makes this assertion mean anything.
+     *
+     * Without it the request is turned away by the origin check at 403 before
+     * routing is ever consulted, so the test passed or failed on whether CSRF
+     * worked — it could not distinguish "there is no such endpoint" from "there
+     * is one, behind a header we forgot to send". That is the opposite of what
+     * this file exists to prove. Sent as a real same-origin call, the request
+     * reaches the router and the router has nothing for it.
+     */
+    const response = await page.request.fetch(new URL("/api/v1/me", page.url()).toString(), {
       method: "DELETE",
+      headers: { origin: new URL(page.url()).origin },
       data: { currentPassword: STRONG_PASSWORD, understood: true },
       failOnStatusCode: false,
     });
 
-    expect([404, 405]).toContain(response.status());
+    expect(
+      [404, 405],
+      `DELETE /api/v1/me answered ${response.status()}; anything other than "no such route" ` +
+        "means self-service erasure is reachable again",
+    ).toContain(response.status());
 
     // And the account is still perfectly usable afterwards.
     await page.goto("/app");
