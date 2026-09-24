@@ -52,6 +52,48 @@ export type RedemptionFailureReason =
   | "redemption_disabled"
   | "malformed";
 
+/**
+ * How notable each refusal is, as a security event.
+ *
+ * Only `unknown_code` used to be filed as `info`, so somebody redeeming a code
+ * they had already used — or reaching the page before verifying their email —
+ * was recorded at the same severity as a genuine abuse signal. The console then
+ * counted them all together and called the total "blocked attempts", which is
+ * how an ordinary week of people fumbling their codes came to look like an
+ * attack in progress.
+ *
+ * `info` means the person did nothing wrong and nothing is under threat: a
+ * typo, a repeat, an unverified address, a campaign that is paused or finished.
+ * `warning` is the short list that says something about the CALLER rather than
+ * the code — a suspended account still trying, an address outside the
+ * campaign's allowed domains, and a payload that never had the shape of a code.
+ *
+ * A MAP rather than a condition, and `satisfies` rather than a cast, so that
+ * adding a member to the union above without deciding this is a compile error
+ * instead of a silent default. That is the entire point: the previous version
+ * of this judgement was a single inline ternary, and every reason added after
+ * it was quietly classified as suspicious by omission.
+ */
+const REFUSAL_SEVERITY = {
+  unknown_code: "info",
+  paused: "info",
+  revoked: "info",
+  expired: "info",
+  not_started: "info",
+  limit_reached: "info",
+  duplicate: "info",
+  email_unverified: "info",
+  redemption_disabled: "info",
+  domain_not_allowed: "warning",
+  user_suspended: "warning",
+  malformed: "warning",
+} satisfies Record<RedemptionFailureReason, "info" | "warning">;
+
+/** The severity a refused redemption should be recorded at. */
+export function refusalSeverity(reason: RedemptionFailureReason): "info" | "warning" {
+  return REFUSAL_SEVERITY[reason];
+}
+
 export interface RedeemInput {
   userId: string;
   /** Raw text as typed. Normalised here, never trusted as-is. */

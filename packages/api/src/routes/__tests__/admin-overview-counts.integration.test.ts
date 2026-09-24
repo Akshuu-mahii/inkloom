@@ -59,9 +59,28 @@ async function staffCookies(email: string): Promise<string[]> {
 
 interface Overview {
   users: { total: number; verified: number; signupsToday: number; signupsWeek: number };
+  sessions: { active: number };
   credits: { granted: number; outstanding: number };
-  redemptions: { successful: number };
+  redemptions: {
+    successful: number;
+    failed: number;
+    failuresByReason: Array<{ reason: string; count: number }>;
+  };
   funnel: { signupCompleted: number; emailVerified: number; codeRedeemed: number };
+}
+
+/** The timezone the console cuts its calendar periods on. Must track the route. */
+const REPORTING_TIME_ZONE = "Asia/Kolkata";
+
+/** The local wall-clock hour, in the reporting timezone, right now. */
+function hourHereNow(): number {
+  return Number(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: REPORTING_TIME_ZONE,
+      hour: "2-digit",
+      hour12: false,
+    }).format(new Date()),
+  );
 }
 
 async function overview(cookies: string[]): Promise<Overview> {
@@ -158,5 +177,140 @@ describe("the numbers agree with each other", () => {
     expect(data.users.verified).toBeLessThanOrEqual(data.users.total);
     expect(data.funnel.signupCompleted).toBe(data.users.total);
     expect(data.funnel.emailVerified).toBe(data.users.verified);
+  });
+});
+
+describe("the periods on the page are the periods on the label", () => {
+  it("counts 'today' from local midnight, not from this time yesterday", async () => {
+    /*
+     * The bug: "Signups today" was `created_at >= now() - 24 hours`. That is a
+     * window sliding backwards all day, so at nine in the evening it was still
+     * counting people who joined at eight the previous evening — and the number
+     * fell as the day went on rather than rising, which is the opposite of what
+     * the label promises.
+     *
+     * Backdated by twenty hours: inside a rolling day, and outside the calendar
+     * one for every local hour before 20:00. Before that the two windows
+     * genuinely overlap and there is nothing to tell apart, so the assertion
+     * only runs when the distinction exists.
+     */
+    const staff = await staffCookies("periods@example.test");
+    await signupAndVerify("yesterday-evening@example.test");
+
+    await app.db.db.execute(
+      sql`UPDATE users SET created_at = now() - interval '20 hours'
+           WHERE email = 'yesterday-evening@example.test'`,
+    );
+
+    const data = await overview(staff);
+
+    if (hourHereNow() < 20) {
+      expect(
+        data.users.signupsToday,
+        "a signup from before local midnight is not a signup today",
+      ).toBe(1);
+    }
+    // Either way it is still this week, and still a user.
+    expect(data.users.signupsWeek).toBe(2);
+    expect(data.users.total).toBe(2);
+  });
+
+  it("keeps 'today' inside 'this week' inside the total", async () => {
+    const staff = await staffCookies("nesting@example.test");
+    await signupAndVerify("one@example.test");
+
+    const data = await overview(staff);
+    expect(data.users.signupsToday).toBeLessThanOrEqual(data.users.signupsWeek);
+    expect(data.users.signupsWeek).toBeLessThanOrEqual(data.users.total);
+  });
+});
+
+describe("failed redemptions are reported as failures, with their reasons", () => {
+  /**
+   * Record a redemption failure the way the redeem route does.
+   *
+   * The casts are load-bearing: without them Postgres cannot infer a type for a
+   * bare parameter in this position and refuses to plan the statement at all
+   * (42P18), which shows up as an opaque serialised error rather than a test
+   * failure you can read.
+   */
+  async function recordFailure(email: string, reason: string): Promise<void> {
+    await app.db.db.execute(sql`
+      INSERT INTO security_events (id, type, severity, user_id, metadata)
+      VALUES ('sec_' || md5(random()::text), 'access_code_failed', 'info',
+              (SELECT id FROM users WHERE email = ${email}::text),
+              jsonb_build_object('reason', ${reason}::text))
+    `);
+  }
+
+  it("breaks the total down by reason so the number means something", async () => {
+    /*
+     * The console called this "Blocked attempts" and printed it in alert red,
+     * so a week of people mistyping their code read as an attack. The total is
+     * only interpretable next to the reasons behind it.
+     */
+    const staff = await staffCookies("reasons@example.test");
+    await signupAndVerify("fumbler@example.test");
+
+    await recordFailure("fumbler@example.test", "unknown_code");
+    await recordFailure("fumbler@example.test", "unknown_code");
+    await recordFailure("fumbler@example.test", "duplicate");
+
+    const data = await overview(staff);
+    expect(data.redemptions.failed).toBe(3);
+    expect(data.redemptions.failuresByReason).toEqual([
+      { reason: "unknown_code", count: 2 },
+      { reason: "duplicate", count: 1 },
+    ]);
+  });
+
+  it("leaves erased accounts out, like every other count on the page", async () => {
+    /*
+     * The one number on the overview that never excluded tombstones. A load
+     * test's failed redemptions stayed in it forever, which is how a count of
+     * people fumbling their codes ended up describing a fixture.
+     */
+    const staff = await staffCookies("erased-failures@example.test");
+    await signupAndVerify("fixture@example.test");
+    await recordFailure("fixture@example.test", "unknown_code");
+
+    expect((await overview(staff)).redemptions.failed).toBe(1);
+
+    await app.db.db.execute(
+      sql`UPDATE users SET status = 'deleted', anonymized_at = now()
+           WHERE email = 'fixture@example.test'`,
+    );
+
+    const after = await overview(staff);
+    expect(after.redemptions.failed, "a tombstone did not fumble a code").toBe(0);
+    expect(after.redemptions.failuresByReason).toEqual([]);
+  });
+
+  it("does not count an erased account's sessions as active", async () => {
+    /*
+     * `active_sessions` was the other count on this page that never excluded
+     * tombstones — it read the sessions table without ever looking at who the
+     * session belonged to. Signing up, verifying and logging in can each leave
+     * a session behind, so the drop is measured rather than assumed to be one.
+     */
+    const staff = await staffCookies("erased-sessions@example.test");
+    await signupAndVerify("signed-in@example.test");
+
+    const before = (await overview(staff)).sessions.active;
+    const theirs = await app.db.db.execute<{ count: string }>(sql`
+      SELECT COUNT(*)::text AS count FROM sessions s JOIN users u ON u.id = s.user_id
+       WHERE u.email = 'signed-in@example.test' AND s.revoked_at IS NULL AND s.expires_at > now()
+    `);
+    const owned = Number(theirs.rows[0]?.count ?? 0);
+    expect(owned, "the account under test must actually be signed in").toBeGreaterThan(0);
+
+    await app.db.db.execute(
+      sql`UPDATE users SET status = 'deleted', anonymized_at = now()
+           WHERE email = 'signed-in@example.test'`,
+    );
+
+    expect((await overview(staff)).sessions.active, "nobody is signed in to a tombstone").toBe(
+      before - owned,
+    );
   });
 });

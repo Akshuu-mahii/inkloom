@@ -3,7 +3,7 @@
  */
 import { Hono } from "hono";
 import { newId } from "@inkloom/db";
-import { RedemptionError, RedemptionService } from "@inkloom/core/access-codes";
+import { RedemptionError, RedemptionService, refusalSeverity } from "@inkloom/core/access-codes";
 import type { Env } from "../context";
 import { ok, paged } from "../lib/response";
 import { body, query, validateBody, validateQuery } from "../middleware/validate";
@@ -141,10 +141,14 @@ codeRoutes.post(
       });
     } catch (error) {
       if (error instanceof RedemptionError) {
-        // The TRUE reason goes to the security log for operators...
+        /*
+         * The TRUE reason goes to the security log for operators, at a severity
+         * that reflects what actually happened rather than treating every
+         * refusal as suspicious. See `refusalSeverity`.
+         */
         await audit.security({
           type: "access_code_failed",
-          severity: error.reason === "unknown_code" ? "info" : "warning",
+          severity: refusalSeverity(error.reason),
           userId: principal.userId,
           ipHash: c.get("ipHash"),
           requestId: c.get("requestId"),

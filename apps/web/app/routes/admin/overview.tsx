@@ -14,6 +14,28 @@ export function meta({ location }: Route.MetaArgs) {
   });
 }
 
+/**
+ * The redemption service's failure reasons, in words an operator can act on.
+ *
+ * The raw values are fine in a log and useless on a dashboard: `duplicate`
+ * does not tell you that the person already had their credits, and that is the
+ * difference between "ignore this" and "go and help them".
+ */
+const FAILURE_REASONS: Record<string, string> = {
+  unknown_code: "code not recognised (usually a typo)",
+  duplicate: "already redeemed",
+  email_unverified: "email not verified yet",
+  redemption_disabled: "redemption was switched off",
+  user_suspended: "account suspended",
+  malformed: "code in the wrong format",
+  domain_not_allowed: "email domain not eligible",
+  paused: "campaign paused",
+  revoked: "campaign revoked",
+  expired: "campaign expired",
+  not_started: "campaign had not started",
+  limit_reached: "campaign limit reached",
+};
+
 interface Overview {
   users: {
     total: number;
@@ -35,7 +57,12 @@ interface Overview {
       status: string;
     }>;
   };
-  redemptions: { successful: number; blocked: number; activeCampaigns: number };
+  redemptions: {
+    successful: number;
+    failed: number;
+    failuresByReason: Array<{ reason: string; count: number }>;
+    activeCampaigns: number;
+  };
   operations: {
     emailFailures: number;
     openSupport: number;
@@ -102,8 +129,9 @@ export default function AdminOverview({ loaderData }: Route.ComponentProps) {
       <section className="stat-row">
         <Stat value={o.users.total.toLocaleString("en-GB")} label="Total users" />
         <Stat value={o.users.verified.toLocaleString("en-GB")} label="Verified" />
-        <Stat value={o.users.signupsToday} label="Signups today" />
-        <Stat value={o.users.signupsWeek} label="This week" />
+        {/* Calendar periods in IST, not rolling windows — see REPORTING_TIME_ZONE. */}
+        <Stat value={o.users.signupsToday} label="Signups today (IST)" />
+        <Stat value={o.users.signupsWeek} label="This week (from Mon)" />
         <Stat value={o.sessions.active.toLocaleString("en-GB")} label="Active sessions" />
         <Stat
           value={o.users.suspended}
@@ -116,11 +144,18 @@ export default function AdminOverview({ loaderData }: Route.ComponentProps) {
         <Stat value={formatCredits(o.credits.granted)} label="Credits granted" tone="loop" />
         <Stat value={formatCredits(o.credits.outstanding)} label="Credits outstanding" />
         <Stat value={o.redemptions.successful} label="Successful redemptions" />
-        <Stat
-          value={o.redemptions.blocked}
-          label="Blocked attempts (7d)"
-          tone={o.redemptions.blocked > 0 ? "loop" : "muted"}
-        />
+        {/*
+          "Failed", and never in alert red.
+
+          This counts every redemption that did not go through, and the reasons
+          that produce one are mostly ordinary: a mistyped code, a code already
+          used, somebody reaching the redeem page before verifying their email.
+          Labelled "Blocked attempts" and printed in red it read as an attack in
+          progress, so a perfectly normal support signal looked like an
+          emergency and there was nothing to do about it. The breakdown below
+          says which it actually is.
+        */}
+        <Stat value={o.redemptions.failed} label="Failed redemptions (7d)" />
         <Stat
           value={o.operations.emailFailures}
           label="Email failures (24h)"
@@ -128,6 +163,34 @@ export default function AdminOverview({ loaderData }: Route.ComponentProps) {
         />
         <Stat value={o.operations.openSupport} label="Open support" />
       </section>
+
+      {o.redemptions.failuresByReason.length > 0 && (
+        <section style={{ marginTop: "1.5rem" }}>
+          <h2 style={{ fontSize: "var(--text-h4)", marginBottom: "0.75rem" }}>
+            Why redemptions failed
+          </h2>
+          <ul
+            style={{
+              listStyle: "none",
+              margin: 0,
+              padding: 0,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "0.5rem 1.75rem",
+              fontSize: "var(--text-fine)",
+            }}
+          >
+            {o.redemptions.failuresByReason.map((row) => (
+              <li key={row.reason} style={{ display: "flex", gap: "0.5rem" }}>
+                <span className="numeric">{row.count}</span>
+                <span style={{ color: "var(--color-muted)" }}>
+                  {FAILURE_REASONS[row.reason] ?? row.reason}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* --- Funnel: genuinely a sequence, so it is ordered and numbered --- */}
       <section style={{ marginTop: "3rem" }}>

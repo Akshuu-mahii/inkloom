@@ -47,6 +47,7 @@ import {
 import { templates } from "@inkloom/email";
 import type { Env } from "../context";
 import { apiError, ok, paged } from "../lib/response";
+import { periodStart } from "../lib/reporting-periods";
 import { body, query, validateBody, validateQuery } from "../middleware/validate";
 import { assertReason, requirePermission } from "../middleware/auth";
 import { bySubjectUser, rateLimit } from "../middleware/rate-limit";
@@ -88,12 +89,16 @@ adminRoutes.use("*", rateLimit({ bucket: "admin.api.user", subject: bySubjectUse
 // ===========================================================================
 // Overview
 // ===========================================================================
+
 adminRoutes.get("/overview", requirePermission("admin.overview.read"), async (c) => {
   const { db } = c.get("services");
   const now = new Date();
   const dayAgo = new Date(now.getTime() - 86_400_000);
   const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
-  const monthAgo = new Date(now.getTime() - 30 * 86_400_000);
+  // Calendar periods, cut in the reporting timezone — see REPORTING_TIME_ZONE.
+  const dayStart = periodStart(now, "day");
+  const weekStart = periodStart(now, "week");
+  const monthStart = periodStart(now, "month");
 
   /*
    * ONE POPULATION, COUNTED THE SAME WAY EVERYWHERE.
@@ -116,11 +121,12 @@ adminRoutes.get("/overview", requirePermission("admin.overview.read"), async (c)
     SELECT
       (SELECT COUNT(*) FROM users WHERE status <> 'deleted')                        AS total_users,
       (SELECT COUNT(*) FROM users WHERE email_verified = true AND status <> 'deleted') AS verified_users,
-      (SELECT COUNT(*) FROM users WHERE created_at >= ${dayAgo} AND status <> 'deleted')  AS signups_today,
-      (SELECT COUNT(*) FROM users WHERE created_at >= ${weekAgo} AND status <> 'deleted') AS signups_week,
-      (SELECT COUNT(*) FROM users WHERE created_at >= ${monthAgo} AND status <> 'deleted') AS signups_month,
+      (SELECT COUNT(*) FROM users WHERE created_at >= ${dayStart} AND status <> 'deleted')  AS signups_today,
+      (SELECT COUNT(*) FROM users WHERE created_at >= ${weekStart} AND status <> 'deleted') AS signups_week,
+      (SELECT COUNT(*) FROM users WHERE created_at >= ${monthStart} AND status <> 'deleted') AS signups_month,
       (SELECT COUNT(*) FROM users WHERE status = 'suspended')                       AS suspended_users,
-      (SELECT COUNT(*) FROM sessions WHERE revoked_at IS NULL AND expires_at > now()) AS active_sessions,
+      (SELECT COUNT(*) FROM sessions s JOIN users u ON u.id = s.user_id
+        WHERE s.revoked_at IS NULL AND s.expires_at > now() AND u.status <> 'deleted') AS active_sessions,
       (SELECT COALESCE(SUM(l.amount),0) FROM credit_ledger l
          JOIN users u ON u.id = l.user_id
         WHERE l.amount > 0 AND u.status <> 'deleted')                               AS credits_granted,
@@ -130,7 +136,9 @@ adminRoutes.get("/overview", requirePermission("admin.overview.read"), async (c)
       (SELECT COUNT(*) FROM access_code_redemptions r
          JOIN users u ON u.id = r.user_id
         WHERE u.status <> 'deleted')                                                AS successful_redemptions,
-      (SELECT COUNT(*) FROM security_events WHERE type = 'access_code_failed' AND created_at >= ${weekAgo}) AS blocked_redemptions,
+      (SELECT COUNT(*) FROM security_events e LEFT JOIN users u ON u.id = e.user_id
+        WHERE e.type = 'access_code_failed' AND e.created_at >= ${weekAgo}
+          AND (e.user_id IS NULL OR u.status <> 'deleted'))                          AS failed_redemptions,
       (SELECT COUNT(*) FROM access_code_campaigns WHERE status = 'enabled')         AS active_campaigns,
       (SELECT COUNT(*) FROM email_events WHERE status IN ('failed','bounced') AND created_at >= ${dayAgo}) AS email_failures,
       (SELECT COUNT(*) FROM support_requests WHERE status = 'open')                 AS open_support,
@@ -140,42 +148,43 @@ adminRoutes.get("/overview", requirePermission("admin.overview.read"), async (c)
   const row = stats.rows[0] ?? {};
   const n = (key: string) => Number(row[key] ?? 0);
 
-  const [byCampaign, recentSecurity, recentAdmin, funnel, jobs] = await Promise.all([
-    db
-      .select({
-        campaignId: accessCodeCampaign.id,
-        name: accessCodeCampaign.name,
-        redemptions: accessCodeCampaign.redemptionCount,
-        creditAmount: accessCodeCampaign.creditAmount,
-        status: accessCodeCampaign.status,
-      })
-      .from(accessCodeCampaign)
-      .orderBy(desc(accessCodeCampaign.redemptionCount))
-      .limit(10),
-    db.query.securityEvent.findMany({
-      orderBy: [desc(securityEvent.createdAt)],
-      limit: 10,
-    }),
-    db.query.auditEvent.findMany({ orderBy: [desc(auditEvent.createdAt)], limit: 10 }),
-    /*
-     * The GTM funnel the brief asks for, computed from first-party events.
-     *
-     * `signup_started` counts DISTINCT people, like `visitors` above it. It used
-     * to count EVENTS, so one person who opened the signup form five times
-     * appeared as five, and the console drew "Signup started · 500%" — a funnel
-     * stage five times wider than the funnel containing it.
-     *
-     * Note the first two steps are consent-gated analytics while the rest are
-     * counted from real tables, so the steps are NOT nested subsets and a later
-     * stage can legitimately exceed an earlier one. The Funnel component says so
-     * rather than drawing an impossible bar.
-     *
-     * Every table-counted step excludes erased accounts, for the same reason
-     * the totals above do: a tombstone is not somebody who completed signup.
-     * Without that, the console drew "signup completed 102, 10200%" against a
-     * platform with four users.
-     */
-    db.execute<Record<string, string>>(sql`
+  const [byCampaign, recentSecurity, recentAdmin, funnel, redemptionFailures, jobs] =
+    await Promise.all([
+      db
+        .select({
+          campaignId: accessCodeCampaign.id,
+          name: accessCodeCampaign.name,
+          redemptions: accessCodeCampaign.redemptionCount,
+          creditAmount: accessCodeCampaign.creditAmount,
+          status: accessCodeCampaign.status,
+        })
+        .from(accessCodeCampaign)
+        .orderBy(desc(accessCodeCampaign.redemptionCount))
+        .limit(10),
+      db.query.securityEvent.findMany({
+        orderBy: [desc(securityEvent.createdAt)],
+        limit: 10,
+      }),
+      db.query.auditEvent.findMany({ orderBy: [desc(auditEvent.createdAt)], limit: 10 }),
+      /*
+       * The GTM funnel the brief asks for, computed from first-party events.
+       *
+       * `signup_started` counts DISTINCT people, like `visitors` above it. It used
+       * to count EVENTS, so one person who opened the signup form five times
+       * appeared as five, and the console drew "Signup started · 500%" — a funnel
+       * stage five times wider than the funnel containing it.
+       *
+       * Note the first two steps are consent-gated analytics while the rest are
+       * counted from real tables, so the steps are NOT nested subsets and a later
+       * stage can legitimately exceed an earlier one. The Funnel component says so
+       * rather than drawing an impossible bar.
+       *
+       * Every table-counted step excludes erased accounts, for the same reason
+       * the totals above do: a tombstone is not somebody who completed signup.
+       * Without that, the console drew "signup completed 102, 10200%" against a
+       * platform with four users.
+       */
+      db.execute<Record<string, string>>(sql`
       SELECT
         (SELECT COUNT(DISTINCT anonymous_id) FROM analytics_events WHERE name = 'landing_viewed')  AS visitors,
         (SELECT COUNT(DISTINCT anonymous_id) FROM analytics_events WHERE name = 'signup_started') AS signup_started,
@@ -187,46 +196,67 @@ adminRoutes.get("/overview", requirePermission("admin.overview.read"), async (c)
            JOIN users u ON u.id = a.user_id
           WHERE a.name = 'dashboard_viewed' AND u.status <> 'deleted')                             AS dashboard_activated
     `),
-    /*
-     * Is the retention sweep still running?
-     *
-     * The periods published at /privacy are only kept if this job runs, and
-     * until `job_runs` existed a job that silently stopped looked exactly like
-     * a job with nothing to delete. Surfaced on the page an operator already
-     * watches, and folded into `operations.status` below so it can page someone
-     * rather than waiting to be noticed.
-     */
-    /*
-     * Every scheduled job's health, in one place.
-     *
-     * Retention keeps the promises made at /privacy; the backup is the only
-     * thing standing between a bad hour and permanent data loss; the restore
-     * test is what stops the backup silently becoming unusable. All three fail
-     * the same way — by quietly not running — so all three are read the same
-     * way, from the age of their newest row.
-     *
-     * Degrade, never take the page down. This is one panel on a dashboard an
-     * operator reaches for when something is already wrong, so it must not be
-     * able to 500 the whole overview — as it did the first time it shipped,
-     * against a database where the migration had not yet run. The fallback
-     * still reports UNHEALTHY rather than pretending everything is fine.
-     */
-    Promise.all(
-      [RETENTION_JOB, BACKUP_JOB, RESTORE_TEST_JOB].map((job) =>
-        jobHealth(db, job, JOB_MAX_AGE_HOURS[job]).catch((error: unknown) => {
-          c.get("services").logger.error("job_health_unavailable", { job, error });
-          return {
-            job,
-            healthy: false,
-            lastRunAt: null,
-            lastStatus: "unknown",
-            ageHours: null,
-            removedLastRun: null,
-          };
-        }),
+      /*
+       * WHY the redemptions failed, not just how many.
+       *
+       * The count on its own is unreadable — it cannot distinguish a hundred
+       * people mistyping a code from a hundred attempts to guess one, and those
+       * want opposite responses. Grouped by the reason the redemption service
+       * already records, it answers the question an operator actually has.
+       *
+       * Erased accounts are excluded here exactly as they are everywhere else on
+       * this page; a load test's failures are not people struggling with codes.
+       */
+      db.execute<Record<string, string>>(sql`
+      SELECT COALESCE(e.metadata->>'reason', 'unknown') AS reason, COUNT(*)::text AS count
+      FROM security_events e
+      LEFT JOIN users u ON u.id = e.user_id
+      WHERE e.type = 'access_code_failed'
+        AND e.created_at >= ${weekAgo}
+        AND (e.user_id IS NULL OR u.status <> 'deleted')
+      GROUP BY 1
+      ORDER BY COUNT(*) DESC
+    `),
+      /*
+       * Is the retention sweep still running?
+       *
+       * The periods published at /privacy are only kept if this job runs, and
+       * until `job_runs` existed a job that silently stopped looked exactly like
+       * a job with nothing to delete. Surfaced on the page an operator already
+       * watches, and folded into `operations.status` below so it can page someone
+       * rather than waiting to be noticed.
+       */
+      /*
+       * Every scheduled job's health, in one place.
+       *
+       * Retention keeps the promises made at /privacy; the backup is the only
+       * thing standing between a bad hour and permanent data loss; the restore
+       * test is what stops the backup silently becoming unusable. All three fail
+       * the same way — by quietly not running — so all three are read the same
+       * way, from the age of their newest row.
+       *
+       * Degrade, never take the page down. This is one panel on a dashboard an
+       * operator reaches for when something is already wrong, so it must not be
+       * able to 500 the whole overview — as it did the first time it shipped,
+       * against a database where the migration had not yet run. The fallback
+       * still reports UNHEALTHY rather than pretending everything is fine.
+       */
+      Promise.all(
+        [RETENTION_JOB, BACKUP_JOB, RESTORE_TEST_JOB].map((job) =>
+          jobHealth(db, job, JOB_MAX_AGE_HOURS[job]).catch((error: unknown) => {
+            c.get("services").logger.error("job_health_unavailable", { job, error });
+            return {
+              job,
+              healthy: false,
+              lastRunAt: null,
+              lastStatus: "unknown",
+              ageHours: null,
+              removedLastRun: null,
+            };
+          }),
+        ),
       ),
-    ),
-  ]);
+    ]);
 
   const f = funnel.rows[0] ?? {};
 
@@ -247,7 +277,27 @@ adminRoutes.get("/overview", requirePermission("admin.overview.read"), async (c)
     },
     redemptions: {
       successful: n("successful_redemptions"),
-      blocked: n("blocked_redemptions"),
+      /*
+       * FAILED, not "blocked", and the rename is the fix.
+       *
+       * Every one of these is an `access_code_failed` security event, and the
+       * reasons that raise one are overwhelmingly ordinary: a mistyped code, a
+       * code already redeemed, someone reaching the redeem page before
+       * verifying their email. The console called the total "Blocked attempts"
+       * and printed it in alert red, so a number that means "people are
+       * struggling with their codes" read as "we are under attack" — and the
+       * only available response to that reading is alarm, because there is
+       * nothing to act on.
+       *
+       * `byReason` is what makes the number worth showing at all: it turns
+       * "115 failures" into "104 of them typed the code wrong", which is a
+       * support problem with an obvious fix.
+       */
+      failed: n("failed_redemptions"),
+      failuresByReason: redemptionFailures.rows.map((r) => ({
+        reason: String(r.reason ?? "unknown"),
+        count: Number(r.count ?? 0),
+      })),
       activeCampaigns: n("active_campaigns"),
     },
     operations: {
