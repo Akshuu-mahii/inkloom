@@ -3,7 +3,7 @@ import { Form, Link, useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/forgot-password";
 import { AuthHeading } from "./layout";
 import { Field, Notice } from "../../components/ui";
-import { Turnstile, type TurnstileStatus } from "../../components/turnstile";
+import { Turnstile, turnstileGate, type TurnstileStatus } from "../../components/turnstile";
 import { call } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
 import { servicesContext } from "../../lib/context";
@@ -54,7 +54,8 @@ export default function ForgotPassword({ loaderData }: Route.ComponentProps) {
    * offers a retry underneath.
    */
   const checkBlocked = Boolean(loaderData.turnstileSiteKey) && checkStatus !== "verified";
-  const checkFailed = checkStatus === "unavailable";
+  /* What the button says while the check is unfinished; `null` once it has passed. */
+  const gate = loaderData.turnstileSiteKey ? turnstileGate(checkStatus) : null;
 
   if (actionData?.sent) {
     return (
@@ -108,13 +109,7 @@ export default function ForgotPassword({ loaderData }: Route.ComponentProps) {
              guaranteed "we couldn't verify you're human" rejection. */
           disabled={navigation.state === "submitting" || checkBlocked}
         >
-          {navigation.state === "submitting"
-            ? "Sending…"
-            : checkFailed
-              ? "Human check unavailable"
-              : checkBlocked
-                ? "Checking you're human…"
-                : "Send reset link"}
+          {navigation.state === "submitting" ? "Sending…" : (gate?.label ?? "Send reset link")}
         </button>
       </Form>
 

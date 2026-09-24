@@ -4,7 +4,7 @@ import type { Route } from "./+types/contact";
 import { buildMeta } from "../../lib/seo";
 import { call, fieldErrors } from "../../lib/api";
 import { Field, Notice, Select, TextArea } from "../../components/ui";
-import { Turnstile, type TurnstileStatus } from "../../components/turnstile";
+import { Turnstile, turnstileGate, type TurnstileStatus } from "../../components/turnstile";
 import { servicesContext } from "../../lib/context";
 
 export function meta({ location }: Route.MetaArgs) {
@@ -63,7 +63,8 @@ export default function Contact({ loaderData }: Route.ComponentProps) {
    * offers a retry underneath.
    */
   const checkBlocked = Boolean(loaderData.turnstileSiteKey) && checkStatus !== "verified";
-  const checkFailed = checkStatus === "unavailable";
+  /* What the button says while the check is unfinished; `null` once it has passed. */
+  const gate = loaderData.turnstileSiteKey ? turnstileGate(checkStatus) : null;
 
   if (actionData?.reference) {
     return (
@@ -209,11 +210,7 @@ export default function Contact({ loaderData }: Route.ComponentProps) {
                   >
                     {navigation.state === "submitting"
                       ? "Sending…"
-                      : checkFailed
-                        ? "Human check unavailable"
-                        : checkBlocked
-                          ? "Checking you're human…"
-                          : "Send message"}
+                      : (gate?.label ?? "Send message")}
                   </button>
                 </div>
               </Form>

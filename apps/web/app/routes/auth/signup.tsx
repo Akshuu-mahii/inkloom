@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import type { Route } from "./+types/signup";
 import { AuthHeading } from "./layout";
 import { Field, Notice } from "../../components/ui";
-import { Turnstile, type TurnstileStatus } from "../../components/turnstile";
+import { Turnstile, turnstileGate, type TurnstileStatus } from "../../components/turnstile";
 import { BusyLabel } from "../../components/infinity-mark";
 import { call, fieldErrors } from "../../lib/api";
 import { buildMeta } from "../../lib/seo";
@@ -100,7 +100,8 @@ export default function Signup({ loaderData }: Route.ComponentProps) {
    * offers a retry underneath.
    */
   const checkBlocked = Boolean(loaderData.turnstileSiteKey) && checkStatus !== "verified";
-  const checkFailed = checkStatus === "unavailable";
+  /* What the button says while the check is unfinished; `null` once it has passed. */
+  const gate = loaderData.turnstileSiteKey ? turnstileGate(checkStatus) : null;
   const fields = actionData?.fields ?? {};
 
   if (!loaderData.signupEnabled) {
@@ -228,12 +229,6 @@ export default function Signup({ loaderData }: Route.ComponentProps) {
           <Turnstile siteKey={loaderData.turnstileSiteKey} onStatusChange={setCheckStatus} />
         )}
 
-        {/*
-          The apostrophe in "Checking you're human…" is ASCII on purpose. These
-          strings are the button's accessible name, and swapping in a
-          typographic quote silently stops anything matching on it — which is
-          how a passing test suite started failing on a purely visual change.
-        */}
         <button
           type="submit"
           className="btn btn-primary"
@@ -243,10 +238,13 @@ export default function Signup({ loaderData }: Route.ComponentProps) {
         >
           {submitting ? (
             <BusyLabel>Creating your account…</BusyLabel>
-          ) : checkFailed ? (
-            "Human check unavailable"
-          ) : checkBlocked ? (
-            <BusyLabel>{"Checking you're human…"}</BusyLabel>
+          ) : gate ? (
+            /* A spinner only while the wait is OURS — see `turnstileGate`. */
+            gate.busy ? (
+              <BusyLabel>{gate.label}</BusyLabel>
+            ) : (
+              gate.label
+            )
           ) : (
             "Create account"
           )}

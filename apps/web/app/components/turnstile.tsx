@@ -14,17 +14,35 @@
  *
  * ---
  *
- * `challenges.cloudflare.com` is a third party, and forms gate their submit
- * button on it. An ad-blocker, a DNS filter, a corporate proxy or a bad minute
- * of connectivity all end the same way: no token, ever. An unbounded wait turns
- * that into a greyed-out button reading "Checking you're human…" forever, with
- * no error and no way forward — which is a broken product as far as the person
- * in front of it is concerned.
+ * WHAT THIS COMPONENT IS ACTUALLY FOR.
  *
- * So the wait is bounded, script failure is detected rather than ignored, and
- * giving up is visible and retryable. The SERVER still fails closed on a
- * missing token; none of this weakens verification, it only stops the UI from
- * stranding someone in front of a control that will never enable.
+ * `challenges.cloudflare.com` is a third party, and forms gate their submit
+ * button on it. So the job here is to reach a SETTLED, HONEST answer about the
+ * check — verified, waiting on the person, or genuinely unavailable — within a
+ * bounded time, in every case, including the ones where Turnstile simply stops
+ * talking to us.
+ *
+ * That last case is not hypothetical. It is the bug this file has now shipped
+ * twice, in opposite directions:
+ *
+ *   1. An unbounded wait: the script tag had a `load` handler and no `error`
+ *      handler, so a blocked script left the button disabled forever reading
+ *      "Checking you're human…" with no error and no way forward.
+ *
+ *   2. Correcting that with ONE deadline that ran until a TOKEN arrived, which
+ *      tore down healthy-but-slow widgets and declared the check dead.
+ *
+ *   3. Correcting THAT by stopping the clock as soon as the widget rendered —
+ *      which removed the last deadline in the system. From that moment the only
+ *      things that could move the status were Turnstile's own callbacks, so a
+ *      challenge that stalled, or a token that expired and never came back, sat
+ *      on "Checking you're human…" indefinitely. Refreshing landed in the same
+ *      place, because the cause travels with the person's network, not the tab.
+ *
+ * The answer to all three is that "the widget appeared" and "a token arrived"
+ * are different events that deserve different deadlines, and that "Turnstile is
+ * waiting for the PERSON" is a third state that deserves no deadline at all —
+ * only a button that says so.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -33,6 +51,7 @@ declare global {
     turnstile?: {
       render: (el: HTMLElement, options: Record<string, unknown>) => string;
       remove: (id: string) => void;
+      reset: (id?: string) => void;
     };
   }
 }
@@ -41,13 +60,39 @@ const SCRIPT_ID = "cf-turnstile-script";
 const SCRIPT_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
 /**
- * How long one attempt gets before it is abandoned and retried.
+ * How long the SCRIPT and the WIDGET get before the attempt is abandoned.
  *
- * The widget normally settles in two or three seconds, but the CDN is a third
- * party and a cold, slow or congested connection can take much longer. This is
- * a per-attempt budget, not a verdict: expiring it starts a fresh attempt.
+ * Deliberately short, because this covers only "did Cloudflare's code load and
+ * draw something". It is a per-attempt budget, not a verdict: expiring it starts
+ * a fresh attempt.
  */
-const ATTEMPT_TIMEOUT_MS = 8_000;
+const WIDGET_TIMEOUT_MS = 8_000;
+
+/**
+ * How long a RENDERED widget gets to produce a token.
+ *
+ * A separate and much longer budget, because it covers a different event.
+ * Measured evidence from this project: on a slow connection a widget that had
+ * rendered promptly went on to mint a perfectly good token about forty seconds
+ * after load. Anything near the widget budget turns that into a false failure —
+ * which is exactly the regression that led to removing the deadline entirely.
+ *
+ * Sixty seconds is comfortably past that observation and still far short of the
+ * time a person will sit in front of a dead button wondering what to do.
+ *
+ * This clock does NOT run while Turnstile is waiting for the person to answer
+ * an interactive challenge. See `sawInteractive` below.
+ */
+const TOKEN_TIMEOUT_MS = 60_000;
+
+/**
+ * The second and last budget, after the stalled challenge has been reset.
+ *
+ * Shorter than the first because everything is warm by now: the script is
+ * parsed, the widget is mounted, and `reset()` asks only for a fresh challenge.
+ * The pair puts a hard ceiling of ninety seconds on reaching a verdict.
+ */
+const TOKEN_RETRY_TIMEOUT_MS = 30_000;
 
 /**
  * How many times to fetch the script before reporting failure.
@@ -61,20 +106,56 @@ const ATTEMPT_TIMEOUT_MS = 8_000;
 const MAX_ATTEMPTS = 3;
 
 /**
- * `pending`  — still working, or retrying; the form holds its submit button.
- * `verified` — a token exists; submitting will pass verification.
+ * `pending`     — WE are waiting on Turnstile. A deadline is running.
+ * `interactive` — TURNSTILE is waiting on the person. No deadline: the clock is
+ *                 theirs, and timing them out would be both rude and wrong.
+ * `verified`    — a token exists; submitting will pass verification.
  * `unavailable` — every attempt failed.
  *
- * A form must keep its submit button DISABLED for both `pending` and
- * `unavailable`, and say why. This is a reversal of an earlier decision here,
- * and the reason is worth recording: releasing the button on `unavailable`
+ * A form must keep its submit button DISABLED for everything except `verified`,
+ * and say which of the three it is. This is a reversal of an earlier decision
+ * here, and the reason is worth recording: releasing the button on `unavailable`
  * looked kinder, but the server fails closed on a missing token, so every one
  * of those submissions was refused — with "We couldn't verify that you're
  * human", which reads as an accusation for something entirely outside the
  * person's control. A disabled button beside a clear explanation and a retry is
  * both more honest and less alarming than a live button that cannot work.
+ *
+ * `interactive` exists because the other three cannot express "your turn". With
+ * `appearance: "always"` Cloudflare may decide a click is needed, and a form
+ * that only knows "pending" tells the person the system is busy while the
+ * system is in fact waiting for them — so they wait, then refresh, forever.
  */
-export type TurnstileStatus = "pending" | "verified" | "unavailable";
+export type TurnstileStatus = "pending" | "interactive" | "verified" | "unavailable";
+
+/**
+ * What a gated submit button should say, and whether it should show a spinner.
+ *
+ * Returns `null` once the check has passed, leaving the button to its own
+ * label. Shared because signup, password reset and contact all render the same
+ * four states and had drifted into three near-identical ternaries.
+ *
+ * A spinner ONLY for `pending`. Spinning at somebody while waiting for them to
+ * click is the whole misunderstanding this state machine exists to fix.
+ */
+export function turnstileGate(status: TurnstileStatus): { label: string; busy: boolean } | null {
+  switch (status) {
+    case "verified":
+      return null;
+    case "unavailable":
+      return { label: "Human check unavailable", busy: false };
+    case "interactive":
+      return { label: "Complete the check above to continue", busy: false };
+    default:
+      /*
+        ASCII apostrophe on purpose. This string is the button's accessible
+        name, and swapping in a typographic quote silently stops anything
+        matching on it — which is how a passing test suite started failing on a
+        purely visual change.
+      */
+      return { label: "Checking you're human…", busy: true };
+  }
+}
 
 export function Turnstile({
   siteKey,
@@ -86,10 +167,11 @@ export function Turnstile({
   /**
    * Fires whenever the state of the check changes.
    *
-   * Forms use this to keep the submit button disabled while the answer is still
-   * `pending`. Without it, a fast typist submits in under the two or three
-   * seconds the widget needs, sends an empty token, and gets a confusing "we
-   * couldn't verify you're human" error for doing nothing wrong.
+   * Forms use this to keep the submit button disabled until the check has
+   * passed, and to say which state it is in. Without it, a fast typist submits
+   * in under the two or three seconds the widget needs, sends an empty token,
+   * and gets a confusing "we couldn't verify you're human" error for doing
+   * nothing wrong.
    */
   onStatusChange?: (status: TurnstileStatus) => void;
 }) {
@@ -120,18 +202,92 @@ export function Turnstile({
 
   useEffect(() => {
     let cancelled = false;
-    let settled = false;
+    /**
+     * This attempt has already been written off. Guards re-entry only.
+     *
+     * Note what it deliberately does NOT cover: a SUCCESSFUL attempt. The old
+     * code latched one `settled` flag on both outcomes, so once a token had
+     * arrived nothing could ever report a failure again — and a token that
+     * later expired without being replaced had no path out of `pending`. A
+     * check that worked and then stopped working is still a check that stopped
+     * working, and has to be able to say so.
+     */
+    let abandoned = false;
+    /**
+     * Has Turnstile told us this challenge needs the person?
+     *
+     * Decides how `timeout-callback` is read: Cloudflare's documentation is
+     * explicit that it means an interactive challenge went unanswered, so after
+     * an interactive prompt it is "your turn, again" — not a fault.
+     */
+    let sawInteractive = false;
+    /** Has this stretch of waiting already been given a fresh challenge? */
+    let tokenRetried = false;
+    let tokenTimer: ReturnType<typeof setTimeout> | undefined;
+
     const script = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null;
 
-    /** This attempt did not produce a widget. Try again, or give up. */
+    /** Start (or restart) the clock on a rendered widget producing a token. */
+    function armTokenTimer() {
+      clearTimeout(tokenTimer);
+      tokenTimer = setTimeout(tokenDeadlineExpired, TOKEN_TIMEOUT_MS);
+    }
+
+    /**
+     * The widget is up and has produced nothing for a full budget.
+     *
+     * Escalated SEPARATELY from `attemptFailed`, and that separation is the
+     * point. `attemptFailed` exists for a script that would not load, so it
+     * throws the script away and refetches — which is worth eight seconds three
+     * times over. Here the script demonstrably loaded and the widget
+     * demonstrably drew itself, so refetching it is both irrelevant and
+     * ruinously slow: three sixty-second rounds is three minutes of a person
+     * staring at a disabled button, which is barely better than the forever it
+     * replaced.
+     *
+     * So: ask Turnstile for one fresh challenge in place, and if that produces
+     * nothing either, say so. Ninety seconds, then a verdict.
+     */
+    function tokenDeadlineExpired() {
+      if (cancelled || abandoned) return;
+      if (!tokenRetried && widgetId.current && window.turnstile) {
+        tokenRetried = true;
+        try {
+          window.turnstile.reset(widgetId.current);
+        } catch {
+          // Best effort. The deadline below is the guarantee, not the reset.
+        }
+        tokenTimer = setTimeout(tokenDeadlineExpired, TOKEN_RETRY_TIMEOUT_MS);
+        return;
+      }
+      abandoned = true;
+      clearTimeout(widgetTimer);
+      report("unavailable");
+    }
+
+    /** This attempt did not produce a usable check. Try again, or give up. */
     function attemptFailed() {
-      if (cancelled || settled) return;
-      settled = true;
-      clearTimeout(attemptTimer);
+      if (cancelled || abandoned) return;
+      abandoned = true;
+      clearTimeout(widgetTimer);
+      clearTimeout(tokenTimer);
       if (attempt + 1 < MAX_ATTEMPTS) {
         // Drop the script so the next attempt refetches rather than replaying
         // the browser's cached failure.
         document.getElementById(SCRIPT_ID)?.remove();
+        /*
+         * Re-gate the button before rebuilding.
+         *
+         * Tearing the widget down takes its hidden `cf-turnstile-response`
+         * input — and whatever token was in it — with it. Without this, a check
+         * that had already passed and then errored left the status on
+         * `verified` while the field behind it was emptied: a live submit
+         * button over no token at all, which the server refuses with "we
+         * couldn't verify that you're human". That accusation for something
+         * outside the person's control is the exact failure this component
+         * exists to prevent, so it must not be reintroduced by the retry path.
+         */
+        report("pending");
         setAttempt((n) => n + 1);
         return;
       }
@@ -148,21 +304,14 @@ export function Turnstile({
       }
       try {
         /*
-         * Once the widget is up, the attempt has done its job.
-         *
-         * The timer used to run until a TOKEN arrived, which is a different and
-         * much later event: an interaction-only widget can take well over eight
-         * seconds to produce one, especially on a cold load where the challenge
-         * itself has to be fetched. So a perfectly healthy widget was being torn
-         * down and retried three times, and the form then declared the check
-         * unavailable — while a refresh, served from cache, beat the timer and
-         * looked fine. Stopping the clock here is the fix.
-         *
-         * Nothing is left unguarded: Turnstile's own `error-callback` and
-         * `timeout-callback` cover a widget that renders and then fails, which
-         * is what they exist for.
+         * The widget is up, so the WIDGET budget has done its job — and the
+         * TOKEN budget takes over. Handing off between the two, rather than
+         * simply stopping the clock, is the whole point: it keeps a slow widget
+         * from being torn down while still guaranteeing that every path out of
+         * here is bounded.
          */
-        clearTimeout(attemptTimer);
+        clearTimeout(widgetTimer);
+        armTokenTimer();
         widgetId.current = window.turnstile.render(container.current, {
           sitekey: siteKey,
           action,
@@ -182,18 +331,71 @@ export function Turnstile({
            */
           appearance: "always",
           callback: () => {
-            settled = true;
+            clearTimeout(tokenTimer);
+            // A fresh stretch of waiting later — after an expiry, say — gets its
+            // own full budget and its own one reset, rather than inheriting a
+            // spent one and failing instantly.
+            tokenRetried = false;
             report("verified");
           },
           "error-callback": () => attemptFailed(),
           /*
-            A token is single-use and short-lived. Going back to `pending`
-            re-blocks the button, which is right: submitting an expired token
-            fails exactly like submitting none. Turnstile refreshes it on its
-            own, and the callback moves us back to `verified`.
+            A token is single-use and short-lived — about five minutes, which a
+            careful person filling in a signup form will exceed. Going back to
+            `pending` re-blocks the button, which is right: submitting an expired
+            token fails exactly like submitting none.
+
+            `refresh-expired` defaults to `auto`, so Turnstile normally mints a
+            replacement on its own and `callback` brings us back to `verified`.
+            The timer is re-armed for when it does not: that silent case is what
+            turned an already-filled-in form into a permanently unsendable one,
+            and it left `timeout-or-duplicate` rejections in the security log as
+            its only trace.
           */
-          "expired-callback": () => report("pending"),
-          "timeout-callback": () => attemptFailed(),
+          "expired-callback": () => {
+            report("pending");
+            armTokenTimer();
+          },
+          /*
+            Cloudflare is about to ask the person to do something. Our clock
+            stops: from here the wait is theirs, and timing it out would declare
+            a perfectly healthy widget dead for the sin of being patient.
+          */
+          "before-interactive-callback": () => {
+            sawInteractive = true;
+            clearTimeout(tokenTimer);
+            report("interactive");
+          },
+          // They answered it; the wait is ours again.
+          "after-interactive-callback": () => {
+            report("pending");
+            armTokenTimer();
+          },
+          /*
+            NOT a failure, despite the name. Cloudflare documents this as an
+            interactive challenge that went unanswered — "user action required".
+            Treating it as a broken widget is how someone ended up reading that
+            their ad-blocker was at fault, with a working challenge box sitting
+            directly above the message and a retry link that could not help.
+
+            So: hand them a fresh challenge and ask again. Only if we were never
+            told this challenge was interactive does it fall back to the ordinary
+            bounded wait.
+          */
+          "timeout-callback": () => {
+            if (cancelled) return;
+            try {
+              if (widgetId.current) window.turnstile?.reset(widgetId.current);
+            } catch {
+              // Reset is best-effort; the deadline below is the real guarantee.
+            }
+            if (sawInteractive) {
+              report("interactive");
+              return;
+            }
+            report("pending");
+            armTokenTimer();
+          },
         });
       } catch {
         attemptFailed();
@@ -201,16 +403,15 @@ export function Turnstile({
     }
 
     /*
-      Per-attempt budget. Expiring it is not a verdict — it starts another
-      attempt, and only the last one reports failure. A slow CDN should cost a
-      few extra seconds, not the ability to sign up.
+      Per-attempt budget for the script and the widget. Expiring it is not a
+      verdict — it starts another attempt, and only the last one reports failure.
+      A slow CDN should cost a few extra seconds, not the ability to sign up.
+
+      Declared here, referenced by the functions above. Those are function
+      declarations, so they are hoisted, and none can run before this line: the
+      listeners that call them are attached below it.
     */
-    /*
-      Declared here, referenced by the two functions above.
-      Both are function declarations, so they are hoisted, and neither can run
-      before this line: the listeners that call them are attached below it.
-    */
-    const attemptTimer = setTimeout(attemptFailed, ATTEMPT_TIMEOUT_MS);
+    const widgetTimer = setTimeout(attemptFailed, WIDGET_TIMEOUT_MS);
 
     if (window.turnstile) {
       render();
@@ -228,14 +429,15 @@ export function Turnstile({
     } else {
       // A tag from an earlier page. It may still be in flight, or it may have
       // already finished — in which case neither event fires again, and the
-      // attempt timer is what moves things along.
+      // widget timer is what moves things along.
       script.addEventListener("load", render);
       script.addEventListener("error", attemptFailed);
     }
 
     return () => {
       cancelled = true;
-      clearTimeout(attemptTimer);
+      clearTimeout(widgetTimer);
+      clearTimeout(tokenTimer);
       const el = document.getElementById(SCRIPT_ID);
       el?.removeEventListener("load", render);
       el?.removeEventListener("error", attemptFailed);
@@ -253,6 +455,13 @@ export function Turnstile({
   return (
     <div>
       <div ref={container} />
+
+      {status === "interactive" && (
+        <p className="field-hint" style={{ marginTop: "0.5rem" }} aria-live="polite">
+          Cloudflare needs one more thing from you — complete the check above and the button below
+          will unlock.
+        </p>
+      )}
 
       {status === "unavailable" && (
         <div role="alert" className="field-hint" style={{ marginTop: "0.5rem" }}>
