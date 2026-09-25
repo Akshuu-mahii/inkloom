@@ -1,37 +1,5 @@
 node_modules/
 dist/
-build/
-.react-router/
-.wrangler/
 .env
-.env.*
-!.env.example
-*.local
-.DS_Store
-coverage/
-playwright-report/
-test-results/
-blob-report/
-.turbo/
-*.tsbuildinfo
-openapi.json
-.dev.vars
-.dev.vars.*
-
-# Local mail relay: holds an SMTP password and machine-specific compose bits.
-.mailpit/
-compose.override.yaml
-
-# Database backups. These contain every row of personal data the system holds,
-# so they must never be committed. CI keeps them as expiring artifacts instead.
-backups/
-*.sql.gz
-.gitleaks.json
-
-# AI assistant tooling: local aid, not part of the product.
-apps/web/.agents/
-
-# Operational documentation: deployment, incident response and environment
-# detail. Kept out of the published repository — it describes how the service is
-# run, which is not something a reader needs and is something an attacker would.
-docs/
+backend/.env
+*.log

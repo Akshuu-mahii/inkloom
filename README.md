@@ -1,110 +1,40 @@
-<div align="center">
+# SparkIQ
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="apps/web/public/logo-wordmark-invert.png">
-  <img src="apps/web/public/logo-wordmark.png" alt="Inkloom" width="280">
-</picture>
+SparkIQ is an AI-powered brand intelligence workspace. It turns a rough product, service, food, community, or creator idea into a guided, checked brand strategy and a pamphlet-style kit.
 
-**Specialised AI models for logo design.**
+## Setup
 
-[inkloom.art](https://inkloom.art)
+1. Install Node.js 20 or newer.
+2. Get an API key from your chosen OpenAI-compatible provider (for OpenAI, create one at https://platform.openai.com/api-keys).
+3. Open `backend/.env` and replace `your_openai_compatible_api_key_here` with the key. The file is ignored by git. `backend/.env.example` shows every supported setting.
+4. From the repository root, install all workspaces:
 
-</div>
+```bash
+npm install
+```
 
----
+5. Start both applications:
 
-## What we are building
+```bash
+npm run dev
+```
 
-A logo is not a picture. It is a constructed object with rules: a mark that
-holds at sixteen pixels and on the side of a building, letterforms spaced by
-eye rather than by metric, clear space derived from the mark's own geometry,
-and lockups that still read when one of them is all you have room for.
+The UI is at http://localhost:5173 and the API is at http://localhost:4000. You can also run `npm run dev --workspace backend` and `npm run dev --workspace frontend` in separate terminals.
 
-General image models do not work this way. They produce something
-logo-shaped — a plausible arrangement of marks with no construction behind it,
-no reasoning about the business, and nothing you can hand to a printer or a
-sign maker.
+The backend loads the key with dotenv and is the only process that calls the LLM. It exits at startup if `LLM_API_KEY` is missing. If the provider is temporarily unavailable, the app returns a deterministic, idea-aware local result so the interaction remains usable and retryable.
 
-Inkloom is building models that construct a mark the way a studio does, as a
-sequence of decisions that can each be explained:
+## Example ideas
 
-| Stage                   | What it produces                                                                                                                                                                       |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Brand analysis**      | Turns a description of a business — sector, audience, tone, competitors — into concrete constraints: stroke weight, width, geometry, counter shape, which symbol families fit          |
-| **Typography**          | Selects and fits letterforms against those constraints, then does the work that makes a wordmark: optical spacing, kerning at display size, a custom ligature where the name needs one |
-| **Symbol construction** | Composes geometric primitives under construction rules — shared radii, tangent junctions, consistent terminals — so the result is built rather than sampled                            |
-| **Composition**         | Optical alignment rather than mathematical centring, clear-space ratios taken from the mark itself, and the lockup variants a brand actually needs                                     |
+- `I want to start a home bakery that sells birthday cakes.`
+- `A cyber security tool for small teams.`
+- `A YouTube channel teaching easy regional cooking.`
 
-The output is meant to be a specification, not a bitmap: a mark you can describe,
-defend and reproduce.
+## Feature map
 
----
+The ten stages are separate backend calls. Every call receives the merged JSON context from previous stages. The UI exposes approve/edit/regenerate controls, guided suggestions, Why this reasoning, cliche detection, competitor verification labels, debate agents, score reasons and auto-fix fields, a founder chat, language adaptation controls, launch/e-commerce copy, PDF/share actions, customer feedback demo, voice-over action, and an HTML poster download.
 
-## Where we are
+## Scripts
 
-**Early access is open at [inkloom.art](https://inkloom.art).** Create an
-account, redeem a code, and credits are reserved against your account.
-
-**Generation is not live yet.** We would rather say that plainly than imply
-otherwise: every page in the product says so, credits are described as reserved
-rather than spendable, and the feature flags that would switch generation on
-default to off and are not togglable from the console — because enabling a flag
-whose feature does not exist exposes a broken surface rather than a feature.
-
-What runs today is the platform the models will ship on. Accounts and
-authentication, the credit ledger, the access-code system, the operations
-console, and the machinery around them: backups that are restore-tested rather
-than merely taken, an alerting pair where each half watches what the other
-cannot see, and a deployment path that refuses to migrate a database whose
-identity has not been confirmed.
-
-### What comes next
-
-Generation itself, then the things that only make sense once it exists: export
-in the formats a designer and a printer each need, brand kits, revision history
-on a mark, and paid plans. None of it is claimed as present until it is.
-
----
-
-## About this repository
-
-This source is published so the engineering can be read and audited — in
-particular the security and data-handling claims we make. It is not a
-distribution: see [LICENCE](LICENCE).
-
-Found a security issue? [SECURITY.md](SECURITY.md) says where to send it and
-what to expect. Please do not open a public issue.
-
-Operational documentation — deployment, incident response, environment and
-runbooks — is kept internal. Source comments occasionally point at it by
-filename; that is a reference for the people who run the service, not a broken
-link. It describes how the service is operated, which is of no use to a reader
-and of some use to an attacker.
-
-Built on Cloudflare Workers, Postgres and React Router, with the application and
-its API served from one origin — which is what makes the session cookie
-first-party and removes cross-origin handling entirely.
-
-The test suite runs against a real database, a real browser and a real mail
-server rather than mocks of any of them, because the guarantees that matter here
-are transaction guarantees and a mock cannot have one. The test that matters
-most fires twenty-five simultaneous redemptions of a single code at a real
-database and asserts that exactly one redemption, one ledger entry and one
-balance exist afterwards.
-
----
-
-## Contact
-
-|          |                                                                       |
-| -------- | --------------------------------------------------------------------- |
-| General  | <support@inkloom.art>                                                 |
-| Security | <security@inkloom.art> — please read [SECURITY.md](SECURITY.md) first |
-
----
-
-<div align="center">
-
-Copyright © Inkloom. All rights reserved.
-
-</div>
+- `npm run build`: production-build the frontend.
+- `npm run dev`: run frontend and backend together.
+- `npm run start --workspace backend`: run the backend without watch mode.
